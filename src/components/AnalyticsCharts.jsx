@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { calculateCleanPriceFromYield } from '../utils/analyticsEngine.js';
 
-export default function AnalyticsCharts({ activeBond, metrics, bonds, settlementDate }) {
+export default function AnalyticsCharts({ activeBond, metrics, bonds, settlementDate, historicalData }) {
   const [activeTab, setActiveTab] = useState('priceYield'); // priceYield, historical, cashflow, yieldCurve
   const [histMetric, setHistMetric] = useState('ytm'); // ytm or price (for historical tab)
 
@@ -170,7 +170,7 @@ export default function AnalyticsCharts({ activeBond, metrics, bonds, settlement
   };
 
   const renderHistoricalChart = () => {
-    const history = activeBond.history;
+    const history = (historicalData && historicalData.length > 0) ? historicalData : activeBond.history;
     if (!history || history.length === 0) return null;
 
     const values = history.map(d => histMetric === 'ytm' ? d.ytm * 100 : d.cleanPrice);

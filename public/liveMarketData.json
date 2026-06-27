@@ -1,0 +1,14 @@
+{
+  "lastUpdated": "2026-06-27T10:15:30.123Z",
+  "marketStatus": "OPEN",
+  "prices": {
+    "IN0020120039": {
+      "cleanPrice": 100.12,
+      "ytm": 0.06078
+    },
+    "IN0020160035": {
+      "cleanPrice": 100.32,
+      "ytm": 0.06815
+    }
+  }
+}

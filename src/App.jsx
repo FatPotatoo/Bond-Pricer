@@ -32,6 +32,69 @@ export default function App() {
   const [tickerPriceChange, setTickerPriceChange] = useState(0); // percent change
   const [tickerTime, setTickerTime] = useState(new Date());
 
+  // Live NDS-OM file state info
+  const [liveDataInfo, setLiveDataInfo] = useState(null);
+  
+  // Real-world G-Sec history state from SQLite
+  const [activeBondHistory, setActiveBondHistory] = useState([]);
+
+  // Fetch active bond quotes list from Express SQLite API
+  const fetchBondsFromAPI = () => {
+    fetch('/api/bonds')
+      .then(res => {
+        if (!res.ok) throw new Error('API server returned error');
+        return res.json();
+      })
+      .then(data => {
+        if (data && Array.isArray(data)) {
+          const mappedBonds = data.map(b => ({
+            ...b,
+            currentCleanPrice: b.currentCleanPrice !== null ? b.currentCleanPrice : b.baselineCleanPrice,
+            currentYTM: b.currentYTM !== null ? b.currentYTM : b.solvedYTM
+          }));
+          
+          setBonds(mappedBonds);
+          
+          // Look for live pricing timing indicators
+          const matchedActive = mappedBonds.find(b => b.isin === activeBond.isin);
+          if (matchedActive && matchedActive.lastUpdated) {
+            setLiveDataInfo({
+              lastUpdated: matchedActive.lastUpdated,
+              marketStatus: 'ACTIVE'
+            });
+          }
+        }
+      })
+      .catch(err => {
+        console.log('Error fetching from SQLite API, using EOD fallback:', err.message);
+      });
+  };
+
+  useEffect(() => {
+    fetchBondsFromAPI();
+    const pollInterval = setInterval(fetchBondsFromAPI, 5000);
+    return () => clearInterval(pollInterval);
+  }, [activeBond.isin]);
+
+  // Fetch chronological price history dynamically from Express SQLite API for the active bond
+  useEffect(() => {
+    if (!activeBond) return;
+    fetch(`/api/bonds/${activeBond.isin}/history`)
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch history');
+        return res.json();
+      })
+      .then(data => {
+        if (data && Array.isArray(data)) {
+          setActiveBondHistory(data);
+        }
+      })
+      .catch(err => {
+        console.log('Error fetching bond history, falling back to simulated history:', err.message);
+        setActiveBondHistory(activeBond.history || []);
+      });
+  }, [activeBond.isin]);
+
   // Ref to track price changes for live simulation without re-triggering intervals
   const cleanPriceRef = useRef(cleanPrice);
   cleanPriceRef.current = cleanPrice;
@@ -166,10 +229,18 @@ export default function App() {
         {/* Live Simulation Top Feed Banner */}
         <div className="live-feed-banner">
           <div className="banner-left">
-            <span className="live-badge" style={{ backgroundColor: isLiveActive ? '#ef4444' : '#64748b' }}>
-              {isLiveActive ? 'Live Market' : 'Market Closed'}
+            <span className="live-badge" style={{ 
+              backgroundColor: isLiveActive ? 'var(--accent-red)' : (liveDataInfo ? 'var(--accent-teal)' : '#64748b') 
+            }}>
+              {isLiveActive ? 'Live Simulator' : (liveDataInfo ? 'NDS-OM Active' : 'Calibrated EOD')}
             </span>
-            <span>Active Bond Feed: <strong>{activeBond.name}</strong></span>
+            <span>
+              {liveDataInfo ? (
+                <>Live Quotes (Last Update: <strong style={{ color: 'var(--accent-teal)' }}>{new Date(liveDataInfo.lastUpdated).toLocaleTimeString('en-IN')}</strong>)</>
+              ) : (
+                <>Active Bond Feed: <strong>{activeBond.name}</strong></>
+              )}
+            </span>
           </div>
 
           <div className="banner-right">
@@ -215,6 +286,7 @@ export default function App() {
             metrics={activeMetrics}
             bonds={bonds}
             settlementDate={settlementDate}
+            historicalData={activeBondHistory}
           />
         </div>
 
