@@ -107,4 +107,40 @@ app.post('/api/quotes', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`BondIQ API Server running on port ${PORT}`);
+  
+  // Start the background auto-ingest schedule
+  startAutoIngestion();
 });
+
+const { exec } = require('child_process');
+const path = require('path');
+
+function startAutoIngestion() {
+  const scraperPath = path.join(__dirname, '../scripts/liveIngestion.py');
+  console.log(`[Auto-Scheduler]: Ingestion loop initialized. Triggering scripts/liveIngestion.py every 30 seconds.`);
+  
+  // Trigger immediately on startup
+  runScraper(scraperPath);
+
+  // Poll every 30 seconds
+  setInterval(() => {
+    runScraper(scraperPath);
+  }, 30000);
+}
+
+function runScraper(scriptPath) {
+  exec(`python "${scriptPath}"`, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`[Auto-Scheduler Error]: ${error.message}`);
+      return;
+    }
+    const output = stdout.trim();
+    if (output) {
+      // Print only successful price updates to avoid terminal log noise
+      if (output.includes('successfully') || output.includes('updated')) {
+        console.log(`[Auto-Scheduler Ingest]: ${output}`);
+      }
+    }
+  });
+}
+

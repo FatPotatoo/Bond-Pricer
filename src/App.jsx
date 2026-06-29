@@ -27,9 +27,7 @@ export default function App() {
   // Educational Explainer State
   const [selectedMetric, setSelectedMetric] = useState(null);
   
-  // Live Simulation Ticker State
-  const [isLiveActive, setIsLiveActive] = useState(false);
-  const [tickerPriceChange, setTickerPriceChange] = useState(0); // percent change
+  // Live Clock Time State
   const [tickerTime, setTickerTime] = useState(new Date());
 
   // Live NDS-OM file state info
@@ -95,9 +93,7 @@ export default function App() {
       });
   }, [activeBond.isin]);
 
-  // Ref to track price changes for live simulation without re-triggering intervals
-  const cleanPriceRef = useRef(cleanPrice);
-  cleanPriceRef.current = cleanPrice;
+
 
   // 2. RECUPERATE METRICS
   const getActiveMetrics = () => {
@@ -140,8 +136,6 @@ export default function App() {
     setActiveBond(bond);
     setCleanPrice(bond.currentCleanPrice);
     setYtm(bond.currentYTM);
-    setTickerPriceChange(0);
-    // If live ticker is active, keep it active but reset baseline
   };
 
   const handleCleanPriceChange = (newPrice) => {
@@ -172,36 +166,6 @@ export default function App() {
     setCleanPrice(price);
   };
 
-  // 4. SIMULATED LIVE TICKER ENGINE
-  useEffect(() => {
-    let tickerInterval = null;
-    if (isLiveActive) {
-      tickerInterval = setInterval(() => {
-        const randomPercent = (Math.random() - 0.5) * 0.0006; // +/- 3 bps clean price move
-        const baselinePrice = activeBond.currentCleanPrice;
-        const currentP = cleanPriceRef.current;
-        
-        let nextP = currentP * (1 + randomPercent);
-        
-        // Boundaries safeguarding
-        if (nextP > baselinePrice * 1.05) nextP = baselinePrice * 1.05;
-        if (nextP < baselinePrice * 0.95) nextP = baselinePrice * 0.95;
-
-        // Calculate percent change relative to the baseline CCIL price
-        const changePct = ((nextP - baselinePrice) / baselinePrice) * 100;
-        
-        setTickerPriceChange(changePct);
-        handleCleanPriceChange(nextP);
-      }, 3000);
-    } else {
-      setTickerPriceChange(0);
-    }
-
-    return () => {
-      if (tickerInterval) clearInterval(tickerInterval);
-    };
-  }, [isLiveActive, activeBond]);
-
   // Update ticker clock
   useEffect(() => {
     const clockInterval = setInterval(() => {
@@ -230,9 +194,9 @@ export default function App() {
         <div className="live-feed-banner">
           <div className="banner-left">
             <span className="live-badge" style={{ 
-              backgroundColor: isLiveActive ? 'var(--accent-red)' : (liveDataInfo ? 'var(--accent-teal)' : '#64748b') 
+              backgroundColor: liveDataInfo ? 'var(--accent-teal)' : '#64748b' 
             }}>
-              {isLiveActive ? 'Live Simulator' : (liveDataInfo ? 'NDS-OM Active' : 'Calibrated EOD')}
+              {liveDataInfo ? 'NDS-OM Active' : 'Calibrated EOD'}
             </span>
             <span>
               {liveDataInfo ? (
@@ -244,24 +208,7 @@ export default function App() {
           </div>
 
           <div className="banner-right">
-            {isLiveActive && (
-              <span className={`ticker-indicator font-mono font-bold ${tickerPriceChange >= 0 ? 'text-emerald' : 'text-red'}`}>
-                {tickerPriceChange >= 0 ? '▲ +' : '▼ '}
-                {tickerPriceChange.toFixed(3)}%
-              </span>
-            )}
             <span className="time-badge">{formatTickerTime(tickerTime)}</span>
-            <button
-              onClick={() => setIsLiveActive(!isLiveActive)}
-              className="mode-tab font-bold"
-              style={{
-                borderColor: isLiveActive ? 'var(--accent-red)' : 'var(--accent-teal)',
-                color: isLiveActive ? 'var(--accent-red)' : 'var(--accent-teal)',
-                backgroundColor: isLiveActive ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)'
-              }}
-            >
-              {isLiveActive ? 'Pause Ticker' : 'Simulate Live Ticker'}
-            </button>
           </div>
         </div>
 
