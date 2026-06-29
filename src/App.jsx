@@ -13,6 +13,8 @@ import InteractiveCalculator from './components/InteractiveCalculator.jsx';
 import CashFlowSchedule from './components/CashFlowSchedule.jsx';
 import AnalyticsCharts from './components/AnalyticsCharts.jsx';
 import EducationalExplainers from './components/EducationalExplainers.jsx';
+import AuthModal from './components/AuthModal.jsx';
+import PortfolioView from './components/PortfolioView.jsx';
 
 export default function App() {
   // 1. STATE MANAGEMENT
@@ -29,6 +31,13 @@ export default function App() {
   
   // Live Clock Time State
   const [tickerTime, setTickerTime] = useState(new Date());
+
+  // Auth & Portfolio State
+  const [token, setToken] = useState(localStorage.getItem('bondiq_token') || null);
+  const [username, setUsername] = useState(localStorage.getItem('bondiq_username') || null);
+  const [portfolioData, setPortfolioData] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [currentTab, setCurrentTab] = useState('analytics'); // analytics, portfolio
 
   // Live NDS-OM file state info
   const [liveDataInfo, setLiveDataInfo] = useState(null);
@@ -68,11 +77,62 @@ export default function App() {
       });
   };
 
+  const fetchPortfolio = (currentToken = token) => {
+    if (!currentToken) {
+      setPortfolioData(null);
+      return;
+    }
+    
+    fetch('/api/portfolio', {
+      headers: {
+        'Authorization': `Bearer ${currentToken}`
+      }
+    })
+      .then(res => {
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            handleLogout();
+          }
+          throw new Error('Failed to fetch portfolio');
+        }
+        return res.json();
+      })
+      .then(data => {
+        setPortfolioData(data);
+      })
+      .catch(err => {
+        console.log('Error fetching portfolio:', err.message);
+      });
+  };
+
+  const handleAuthSuccess = (newToken, newUsername) => {
+    localStorage.setItem('bondiq_token', newToken);
+    localStorage.setItem('bondiq_username', newUsername);
+    setToken(newToken);
+    setUsername(newUsername);
+    fetchPortfolio(newToken);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('bondiq_token');
+    localStorage.removeItem('bondiq_username');
+    setToken(null);
+    setUsername(null);
+    setPortfolioData(null);
+    setCurrentTab('analytics');
+  };
+
   useEffect(() => {
     fetchBondsFromAPI();
-    const pollInterval = setInterval(fetchBondsFromAPI, 5000);
+    if (token) fetchPortfolio();
+    
+    const pollInterval = setInterval(() => {
+      fetchBondsFromAPI();
+      if (token) fetchPortfolio();
+    }, 5000);
+    
     return () => clearInterval(pollInterval);
-  }, [activeBond.isin]);
+  }, [activeBond.isin, token]);
 
   // Fetch chronological price history dynamically from Express SQLite API for the active bond
   useEffect(() => {
@@ -186,6 +246,9 @@ export default function App() {
         activeBond={activeBond}
         onSelectBond={handleSelectBond}
         settlementDate={settlementDate}
+        currentTab={currentTab}
+        onTabChange={setCurrentTab}
+        liveDataInfo={liveDataInfo}
       />
 
       {/* 2. Main Analytics Panel */}
@@ -207,42 +270,84 @@ export default function App() {
             </span>
           </div>
 
-          <div className="banner-right">
+          <div className="banner-right" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+            {username ? (
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <span className="font-mono" style={{ fontSize: '12px', color: 'var(--accent-teal)', fontWeight: 'bold' }}>
+                  👤 {username.toUpperCase()}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="mode-tab font-bold"
+                  style={{
+                    borderColor: 'var(--accent-red)',
+                    color: 'var(--accent-red)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                    padding: '3px 10px',
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  LOGOUT
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="mode-tab font-bold"
+                style={{
+                  borderColor: 'var(--accent-teal)',
+                  color: 'var(--accent-teal)',
+                  backgroundColor: 'rgba(20, 184, 166, 0.05)',
+                  padding: '3px 10px',
+                  fontSize: '11px',
+                  cursor: 'pointer'
+                }}
+              >
+                SIGN IN / REGISTER
+              </button>
+            )}
             <span className="time-badge">{formatTickerTime(tickerTime)}</span>
           </div>
         </div>
 
-        {/* Core Stats Metric Cards */}
-        <DashboardGrid
-          activeBond={activeBond}
-          metrics={activeMetrics}
-          settlementDate={settlementDate}
-          onSelectMetric={setSelectedMetric}
-        />
+        {currentTab === 'portfolio' ? (
+          <PortfolioView portfolioData={portfolioData} />
+        ) : (
+          <>
+            {/* Core Stats Metric Cards */}
+            <DashboardGrid
+              activeBond={activeBond}
+              metrics={activeMetrics}
+              settlementDate={settlementDate}
+              onSelectMetric={setSelectedMetric}
+            />
 
-        {/* Dynamic Calculator & SVG Analytics Charts */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.35fr', gap: '20px' }}>
-          <InteractiveCalculator
-            activeBond={activeBond}
-            metrics={activeMetrics}
-            onCleanPriceChange={handleCleanPriceChange}
-            onYieldChange={handleYieldChange}
-          />
-          <AnalyticsCharts
-            activeBond={activeBond}
-            metrics={activeMetrics}
-            bonds={bonds}
-            settlementDate={settlementDate}
-            historicalData={activeBondHistory}
-          />
-        </div>
+            {/* Dynamic Calculator & SVG Analytics Charts */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.35fr', gap: '20px' }}>
+              <InteractiveCalculator
+                activeBond={activeBond}
+                metrics={activeMetrics}
+                onCleanPriceChange={handleCleanPriceChange}
+                onYieldChange={handleYieldChange}
+              />
+              <AnalyticsCharts
+                activeBond={activeBond}
+                metrics={activeMetrics}
+                bonds={bonds}
+                settlementDate={settlementDate}
+                historicalData={activeBondHistory}
+              />
+            </div>
 
-        {/* Cash Flow Schedule Table */}
-        <CashFlowSchedule
-          activeBond={activeBond}
-          metrics={activeMetrics}
-          settlementDate={settlementDate}
-        />
+            {/* Cash Flow Schedule Table */}
+            <CashFlowSchedule
+              activeBond={activeBond}
+              metrics={activeMetrics}
+              settlementDate={settlementDate}
+            />
+          </>
+        )}
       </main>
 
       {/* 3. Educational drawer panel overlay */}
@@ -252,6 +357,14 @@ export default function App() {
         selectedMetric={selectedMetric}
         onClose={() => setSelectedMetric(null)}
       />
+
+      {/* 4. Authentication Modal Overlay */}
+      {showAuthModal && (
+        <AuthModal
+          onAuthSuccess={handleAuthSuccess}
+          onClose={() => setShowAuthModal(false)}
+        />
+      )}
     </div>
   );
 }

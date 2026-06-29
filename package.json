@@ -13,9 +13,11 @@
     "seed": "node server/seed.cjs"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "concurrently": "^10.0.3",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "sqlite3": "^6.0.1"

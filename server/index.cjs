@@ -1,12 +1,28 @@
 const express = require('express');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const db = require('./db.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || 'bondiq_secret_key_2026';
 
 app.use(cors());
 app.use(express.json());
+
+// Middleware to authenticate JWT tokens
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Access token required' });
+  
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid or expired token' });
+    req.user = user;
+    next();
+  });
+};
 
 // Math solver functions for live pricing (US 30/360)
 // To keep Node server light and standalone, we import risk metrics calculations or implement a quick handler.
@@ -104,7 +120,134 @@ app.post('/api/quotes', async (req, res) => {
     res.status(500).json({ error: 'Internal Database Error' });
   }
 });
+// POST /api/auth/register
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
 
+  try {
+    // Check if user already exists
+    const existingUser = await db.getAsync('SELECT id FROM users WHERE username = ?', [username]);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
+    const createdAt = new Date().toISOString();
+
+    // Insert user (default cash balance ₹1 Crore)
+    await db.runAsync(`
+      INSERT INTO users (username, password_hash, cash_balance, created_at)
+      VALUES (?, ?, 10000000.0, ?)
+    `, [username, passwordHash, createdAt]);
+    
+    // Retrieve inserted user ID
+    const user = await db.getAsync('SELECT id, username FROM users WHERE username = ?', [username]);
+    const userId = user.id;
+
+    // Generate ₹1 Crore starting portfolio (allocate ~₹9,500,000 across 4 random G-Secs)
+    const allQuotes = await db.allAsync(`
+      SELECT s.isin, l.clean_price 
+      FROM securities s 
+      JOIN live_quotes l ON s.isin = l.isin
+      WHERE l.clean_price > 0
+    `);
+
+    if (allQuotes.length >= 4) {
+      // Shuffle quotes list to pick 4 random ones
+      const shuffled = allQuotes.sort(() => 0.5 - Math.random());
+      const selectedBonds = shuffled.slice(0, 4);
+
+      const targetValuePerBond = 2375000.0; // ₹9,500,000 / 4
+      let totalSpent = 0;
+
+      for (const bond of selectedBonds) {
+        const cleanPrice = bond.clean_price;
+        // 1 unit = ₹100 face value. Price per unit is cleanPrice.
+        const quantity = Math.floor(targetValuePerBond / cleanPrice);
+        const cost = quantity * cleanPrice;
+        totalSpent += cost;
+
+        await db.runAsync(`
+          INSERT INTO portfolios (user_id, isin, quantity, average_buy_price)
+          VALUES (?, ?, ?, ?)
+        `, [userId, bond.isin, quantity, cleanPrice]);
+      }
+
+      // Update cash balance with remainder
+      const finalCash = 10000000.0 - totalSpent;
+      await db.runAsync('UPDATE users SET cash_balance = ? WHERE id = ?', [finalCash, userId]);
+    }
+
+    // Generate Token
+    const token = jwt.sign({ userId, username }, JWT_SECRET, { expiresIn: '24h' });
+    res.status(201).json({ token, username });
+  } catch (err) {
+    console.error('Registration error:', err.message);
+    res.status(500).json({ error: 'Internal Database Error during registration' });
+  }
+});
+
+// POST /api/auth/login
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
+
+  try {
+    const user = await db.getAsync('SELECT * FROM users WHERE username = ?', [username]);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
+    res.json({ token, username: user.username });
+  } catch (err) {
+    console.error('Login error:', err.message);
+    res.status(500).json({ error: 'Internal Database Error during login' });
+  }
+});
+
+// GET /api/portfolio
+app.get('/api/portfolio', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getAsync('SELECT cash_balance FROM users WHERE id = ?', [req.user.userId]);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const holdings = await db.allAsync(`
+      SELECT 
+        p.isin,
+        s.name,
+        p.quantity,
+        p.average_buy_price AS averageBuyPrice,
+        l.clean_price AS currentPrice,
+        l.ytm AS currentYTM
+      FROM portfolios p
+      JOIN securities s ON p.isin = s.isin
+      JOIN live_quotes l ON p.isin = l.isin
+      WHERE p.user_id = ?
+    `, [req.user.userId]);
+
+    res.json({
+      cashBalance: user.cash_balance,
+      holdings
+    });
+  } catch (err) {
+    console.error('Error fetching portfolio:', err.message);
+    res.status(500).json({ error: 'Internal Database Error fetching portfolio' });
+  }
+});
 app.listen(PORT, () => {
   console.log(`BondIQ API Server running on port ${PORT}`);
   

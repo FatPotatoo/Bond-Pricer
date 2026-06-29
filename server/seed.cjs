@@ -58,6 +58,8 @@ async function seed() {
   console.log(`Parsed ${staticBondsList.length} static G-Sec records from ES module.`);
   
   // 2. Setup SQLite tables
+  await db.runAsync('DROP TABLE IF EXISTS portfolios');
+  await db.runAsync('DROP TABLE IF EXISTS users');
   await db.runAsync('DROP TABLE IF EXISTS live_quotes');
   await db.runAsync('DROP TABLE IF EXISTS historical_quotes');
   await db.runAsync('DROP TABLE IF EXISTS securities');
@@ -92,6 +94,28 @@ async function seed() {
       clean_price REAL NOT NULL,
       ytm REAL NOT NULL,
       UNIQUE(isin, quote_date),
+      FOREIGN KEY (isin) REFERENCES securities (isin) ON DELETE CASCADE
+    )
+  `);
+  
+  await db.runAsync(`
+    CREATE TABLE users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      cash_balance REAL NOT NULL DEFAULT 10000000.0,
+      created_at TEXT NOT NULL
+    )
+  `);
+  
+  await db.runAsync(`
+    CREATE TABLE portfolios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      isin TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      average_buy_price REAL NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
       FOREIGN KEY (isin) REFERENCES securities (isin) ON DELETE CASCADE
     )
   `);
