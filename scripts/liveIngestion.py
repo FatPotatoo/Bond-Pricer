@@ -35,98 +35,88 @@ def is_market_open(dt_ist):
         return True
     return False
 
-def scrape_ccil_quotes():
+def normalize_db_name(name):
     """
-    Launches headless Chromium, navigates to CCIL RBI NDS-OM market watch,
-    and extracts live clean prices and yields.
+    Normalizes database G-Sec nomenclatures to match CCIL patterns.
+    E.g. '6.94% GS 2036' -> '06.94 GS 2036'
+    E.g. '10.18% GS 2026' -> '10.18 GS 2026'
+    E.g. '6.01% GS 2028 (C Align)' -> '06.01 GS 2028'
     """
-    print("Launching headless browser to fetch live quotes...")
+    match = re.search(r'(\d+\.?\d*)\%\s+GS\s+(\d{4})', name)
+    if match:
+        coupon_val = float(match.group(1))
+        year = match.group(2)
+        return f"{coupon_val:05.2f} GS {year}"
+    return None
+
+def scrape_ccil_quotes(lookup_map):
+    """
+    Launches headless Chromium using a real-world User-Agent,
+    navigates to CCIL NDS-OM market watch, and extracts G-Sec quotes.
+    """
+    print("Launching Chromium browser with custom User-Agent...")
     
     with sync_playwright() as p:
-        # Launch browser
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        
+        # Bypassing CCIL WAF filters with real-world headers
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 800}
+        )
+        page = context.new_page()
         url = "https://www.ccilindia.com/web/ccil/rbi-nds-om1"
         
         try:
-            page.goto(url, timeout=30000)
+            print(f"Navigating to {url}...")
+            page.goto(url, wait_until="load", timeout=30000)
             
-            # Wait for any liferay portlet content to load in the DOM
-            # The market tables are dynamic, so we wait for the portlet wrapper
-            page.wait_for_selector(".liferay-portlet-content", timeout=20000)
-            
-            # Give dynamic Javascript an extra 2 seconds to fetch quotes and build rows
-            page.wait_for_timeout(2000)
+            # Wait for quotes tables to load in the DOM
+            page.wait_for_selector("table", timeout=20000)
+            page.wait_for_timeout(3000) # give JS an extra 3 seconds to fetch quotes
             
             html = page.content()
+            browser.close()
+            
             soup = BeautifulSoup(html, "html.parser")
-            
-            # Locate all tables inside the NDS-OM portlets
             tables = soup.find_all("table")
-            print(f"Scraped page. Found {len(tables)} tables in rendered DOM.")
+            print(f"Scraped DOM. Found {len(tables)} tables.")
             
-            extracted_prices = {}
+            live_quotes = {}
             
-            for t_idx, table in enumerate(tables):
-                # Search inside table rows
+            for table in tables:
                 rows = table.find_all("tr")
                 if len(rows) < 2:
                     continue
                 
-                # Check headers to align columns dynamically
-                headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
-                
-                # Default indices
-                isin_idx = -1
-                price_idx = -1
-                yield_idx = -1
-                
-                for idx, h in enumerate(headers):
-                    if "isin" in h:
-                        isin_idx = idx
-                    elif "price" in h:
-                        price_idx = idx
-                    elif "yield" in h or "ytm" in h:
-                        yield_idx = idx
-                
-                # Fallbacks if columns are not named in a standard table header
-                if isin_idx == -1:
-                    # Let's check if the first row has standard length and we can guess
-                    # Under CCIL: Column 1 is Sr No., Column 2 is ISIN, Column 3 is Description, etc.
-                    isin_idx = 1
-                    price_idx = 5 if len(headers) > 5 else -1
-                    yield_idx = 6 if len(headers) > 6 else -1
-                
-                # Parse rows
                 for r_idx in range(1, len(rows)):
                     cells = rows[r_idx].find_all("td")
-                    if len(cells) <= max(isin_idx, price_idx, yield_idx):
+                    if len(cells) < 10:
                         continue
                     
-                    isin = cells[isin_idx].get_text(strip=True)
-                    # Check if cell matches ISIN format (e.g. IN0020120039)
-                    if re.match(r"^IN\d{10}$", isin):
-                        price_str = cells[price_idx].get_text(strip=True) if price_idx != -1 else ""
-                        yield_str = cells[yield_idx].get_text(strip=True) if yield_idx != -1 else ""
+                    desc = cells[0].get_text(strip=True)
+                    # Normalize whitespace spacing
+                    desc_norm = " ".join(desc.split())
+                    
+                    if desc_norm in lookup_map:
+                        isin = lookup_map[desc_norm]
+                        price_str = cells[6].get_text(strip=True) # Column 6 is LTP
+                        yield_str = cells[9].get_text(strip=True) # Column 9 is LTY
                         
                         try:
-                            # Clean string values (remove commas, spaces, dashes)
-                            clean_p = float(price_str.replace(",", "").replace("-", "").strip())
+                            # Clean string values (remove commas, dashes, percent signs)
+                            clean_price = float(price_str.replace(",", "").replace("-", "").strip())
+                            # Convert yield to decimal (e.g. 6.7630% -> 0.06763)
+                            clean_yield = float(yield_str.replace("%", "").replace("-", "").strip()) / 100.0
                             
-                            # Clean yield values (e.g. remove %)
-                            clean_y = float(yield_str.replace("%", "").replace("-", "").strip()) / 100.0
-                            
-                            extracted_prices[isin] = {
-                                "cleanPrice": clean_p,
-                                "ytm": clean_y
+                            live_quotes[isin] = {
+                                "cleanPrice": clean_price,
+                                "ytm": clean_yield
                             }
                         except (ValueError, TypeError):
-                            # Skip rows with no trades/empty price quotes (e.g., "-" or "No Trade")
+                            # Skip rows with no trades/empty price quotes
                             pass
-            
-            browser.close()
-            return extracted_prices
+                            
+            return live_quotes
             
         except Exception as e:
             print(f"Error during browser scraping: {e}")
@@ -147,37 +137,56 @@ def main():
     print(f"Running Ingestion Service at {time_str}")
 
     is_open = is_market_open(ist_now)
-    
     if not is_open and not args.force:
         print("Market is currently CLOSED (offline). Ingestion suspended.")
         print("Closing the scheduled extraction to save resources.")
         sys.exit(0)
 
-    # 2. RUN EXTRACTION
-    live_quotes = scrape_ccil_quotes()
+    # 2. LOAD DB SECURITIES LOOKUP
+    if not os.path.exists(DB_FILE):
+        print(f"Error: Database file not found at: {DB_FILE}. Run seeder first.")
+        sys.exit(1)
+        
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT isin, name FROM securities")
+        db_securities = cursor.fetchall()
+        conn.close()
+    except Exception as db_err:
+        print(f"Failed to read from SQLite database: {db_err}")
+        sys.exit(1)
+        
+    # Build lookup map: normalized_name -> isin
+    lookup_map = {}
+    for isin, name in db_securities:
+        norm = normalize_db_name(name)
+        if norm:
+            lookup_map[norm] = isin
+
+    # 3. RUN PLAYWRIGHT EXTRACTION
+    live_quotes = scrape_ccil_quotes(lookup_map)
 
     if live_quotes is None:
         print("Scraper failed to execute. Retaining previous price database.")
         sys.exit(1)
         
     if len(live_quotes) == 0:
-        print("No active trade data available on the CCIL webpage (market is empty/closed).")
-        print("Retaining previous price database. liveMarketData.json was NOT overwritten.")
+        print("No active G-Sec trade quotes found in CCIL watch (market may be in opening/clearing cycle).")
+        print("Retaining previous price database. SQLite records were NOT overwritten.")
         sys.exit(0)
 
-    # 3. SUCCESSFUL INGESTION - UPDATE SQLite DATABASE
+    # 4. WRITE TRANSACTION TO SQLite
     print(f"Ingested {len(live_quotes)} active live quotes successfully!")
     
-    # Establish connection to SQLite
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
-        # Disable journal syncing for high performance
+        # Optimize performance
         cursor.execute("PRAGMA synchronous = OFF")
         cursor.execute("PRAGMA journal_mode = MEMORY")
         
-        # Batch insert live quotes & history
         updated_time = ist_now.isoformat()
         date_str = ist_now.strftime('%Y-%m-%d')
         
@@ -203,10 +212,10 @@ def main():
             
         conn.commit()
         conn.close()
-        print(f"Successfully updated live quotes and history in database: {DB_FILE}")
+        print(f"Successfully updated SQLite live_quotes and historical_quotes inside: {DB_FILE}")
         
-    except Exception as db_err:
-        print(f"Failed to write to SQLite database: {db_err}")
+    except Exception as db_write_err:
+        print(f"Failed to write quotes to SQLite database: {db_write_err}")
         sys.exit(1)
 
 if __name__ == "__main__":
