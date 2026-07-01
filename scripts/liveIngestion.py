@@ -70,58 +70,76 @@ def scrape_ccil_quotes(lookup_map):
             print(f"Navigating to {url}...")
             page.goto(url, wait_until="load", timeout=30000)
             
-            # Wait for quotes tables to load in the DOM
-            page.wait_for_selector("table", timeout=20000)
-            
             # Select 100 entries dropdown option to bypass pagination and load all active quotes
             if page.query_selector('select[name="ndsomEntityTable_length"]'):
                 page.select_option('select[name="ndsomEntityTable_length"]', "100")
-                print("Changed page length option to 100 to load all active G-Sec rows.")
+                print("Changed page length option to 100 to load G-Sec rows.")
                 page.wait_for_timeout(2000)
             else:
                 page.wait_for_timeout(3000) # fallback wait if dropdown is not rendered
             
-            html = page.content()
-            browser.close()
+            # Scrape pages in a loop (handling pages 2+ if total rows exceed 100)
+            all_pages_html = []
+            has_next = True
+            page_num = 1
             
-            soup = BeautifulSoup(html, "html.parser")
-            tables = soup.find_all("table")
-            print(f"Scraped DOM. Found {len(tables)} tables.")
+            while has_next:
+                print(f"Reading page {page_num} of NDS-OM watch...")
+                all_pages_html.append(page.content())
+                
+                next_btn = page.query_selector('#ndsomEntityTable_next')
+                if next_btn:
+                    class_attr = next_btn.get_attribute("class") or ""
+                    if "disabled" not in class_attr:
+                        next_btn.click()
+                        page.wait_for_timeout(1500) # wait for DOM table update
+                        page_num += 1
+                    else:
+                        has_next = False
+                else:
+                    has_next = False
+            
+            browser.close()
             
             live_quotes = {}
             
-            for table in tables:
-                rows = table.find_all("tr")
-                if len(rows) < 2:
-                    continue
+            # Parse all accumulated pages
+            for html in all_pages_html:
+                soup = BeautifulSoup(html, "html.parser")
+                tables = soup.find_all("table")
                 
-                for r_idx in range(1, len(rows)):
-                    cells = rows[r_idx].find_all("td")
-                    if len(cells) < 10:
+                for table in tables:
+                    rows = table.find_all("tr")
+                    if len(rows) < 2:
                         continue
                     
-                    desc = cells[0].get_text(strip=True)
-                    # Normalize whitespace spacing
-                    desc_norm = " ".join(desc.split())
-                    
-                    if desc_norm in lookup_map:
-                        isin = lookup_map[desc_norm]
-                        price_str = cells[6].get_text(strip=True) # Column 6 is LTP
-                        yield_str = cells[9].get_text(strip=True) # Column 9 is LTY
+                    for r_idx in range(1, len(rows)):
+                        cells = rows[r_idx].find_all("td")
+                        if len(cells) < 10:
+                            continue
                         
-                        try:
-                            # Clean string values (remove commas, dashes, percent signs)
-                            clean_price = float(price_str.replace(",", "").replace("-", "").strip())
-                            # Convert yield to decimal (e.g. 6.7630% -> 0.06763)
-                            clean_yield = float(yield_str.replace("%", "").replace("-", "").strip()) / 100.0
+                        desc = cells[0].get_text(strip=True)
+                        # Normalize whitespace spacing
+                        desc_norm = " ".join(desc.split())
+                        
+                        if desc_norm in lookup_map:
+                            isin = lookup_map[desc_norm]
+                            price_str = cells[6].get_text(strip=True) # Column 6 is LTP
+                            yield_str = cells[9].get_text(strip=True) # Column 9 is LTY
                             
-                            live_quotes[isin] = {
-                                "cleanPrice": clean_price,
-                                "ytm": clean_yield
-                            }
-                        except (ValueError, TypeError):
-                            # Skip rows with no trades/empty price quotes
-                            pass
+                            try:
+                                # Clean string values (remove commas, dashes, percent signs)
+                                clean_price = float(price_str.replace(",", "").replace("-", "").strip())
+                                # Convert yield to decimal (e.g. 6.7630% -> 0.06763)
+                                clean_yield = float(yield_str.replace("%", "").replace("-", "").strip()) / 100.0
+                                
+                                live_quotes[isin] = {
+                                    "cleanPrice": clean_price,
+                                    "ytm": clean_yield
+                                }
+                            except (ValueError, TypeError):
+                                # Skip rows with no trades/empty price quotes
+                                pass
                             
             return live_quotes
             
