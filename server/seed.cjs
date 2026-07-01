@@ -58,6 +58,8 @@ async function seed() {
   console.log(`Parsed ${staticBondsList.length} static G-Sec records from ES module.`);
   
   // 2. Setup SQLite tables
+  await db.runAsync('DROP TABLE IF EXISTS transactions');
+  await db.runAsync('DROP TABLE IF EXISTS orders');
   await db.runAsync('DROP TABLE IF EXISTS portfolios');
   await db.runAsync('DROP TABLE IF EXISTS users');
   await db.runAsync('DROP TABLE IF EXISTS live_quotes');
@@ -104,6 +106,7 @@ async function seed() {
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       cash_balance REAL NOT NULL DEFAULT 10000000.0,
+      reserved_balance REAL NOT NULL DEFAULT 0.0,
       created_at TEXT NOT NULL
     )
   `);
@@ -116,6 +119,40 @@ async function seed() {
       quantity INTEGER NOT NULL,
       average_buy_price REAL NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (isin) REFERENCES securities (isin) ON DELETE CASCADE
+    )
+  `);
+
+  await db.runAsync(`
+    CREATE TABLE orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      isin TEXT NOT NULL,
+      order_type TEXT NOT NULL, -- BUY, SELL
+      price_type TEXT NOT NULL, -- MARKET, LIMIT
+      limit_price REAL,
+      quantity INTEGER NOT NULL,
+      status TEXT NOT NULL, -- PENDING, FILLED, CANCELLED
+      created_at TEXT NOT NULL,
+      executed_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (isin) REFERENCES securities (isin) ON DELETE CASCADE
+    )
+  `);
+
+  await db.runAsync(`
+    CREATE TABLE transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      order_id INTEGER NOT NULL,
+      isin TEXT NOT NULL,
+      trade_type TEXT NOT NULL, -- BUY, SELL
+      execution_price REAL NOT NULL,
+      quantity INTEGER NOT NULL,
+      total_value REAL NOT NULL,
+      executed_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE,
       FOREIGN KEY (isin) REFERENCES securities (isin) ON DELETE CASCADE
     )
   `);

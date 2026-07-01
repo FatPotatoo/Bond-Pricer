@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-export default function PortfolioView({ portfolioData }) {
+export default function PortfolioView({ portfolioData, ordersData, onCancelOrder }) {
+  const [activeSubTab, setActiveSubTab] = useState('holdings'); // holdings, pending, history
+  const [cancellingId, setCancellingId] = useState(null);
+
   if (!portfolioData) {
     return (
       <div style={styles.emptyContainer} className="terminal-card font-mono">
@@ -9,12 +12,13 @@ export default function PortfolioView({ portfolioData }) {
     );
   }
 
-  const { cashBalance, holdings } = portfolioData;
+  const { cashBalance, reservedBalance, holdings } = portfolioData;
+  const pendingOrders = ordersData && ordersData.pending ? ordersData.pending : [];
+  const tradeHistory = ordersData && ordersData.history ? ordersData.history : [];
 
   // Calculate overall metrics
   const bondMarketValue = holdings.reduce((sum, h) => sum + (h.quantity * h.currentPrice), 0);
-  const totalNetWorth = cashBalance + bondMarketValue;
-  const initialValue = holdings.reduce((sum, h) => sum + (h.quantity * h.averageBuyPrice), 0) + cashBalance; // starting value (~10,000,000)
+  const totalNetWorth = cashBalance + reservedBalance + bondMarketValue;
   
   const totalPL = totalNetWorth - 10000000.0; // P&L relative to the starting ₹1 Crore seed capital
   const totalPLPercent = (totalPL / 10000000.0) * 100;
@@ -26,6 +30,14 @@ export default function PortfolioView({ portfolioData }) {
       currency: 'INR',
       maximumFractionDigits: 2
     }).format(val);
+  };
+
+  const handleCancel = async (orderId) => {
+    setCancellingId(orderId);
+    if (onCancelOrder) {
+      await onCancelOrder(orderId);
+    }
+    setCancellingId(null);
   };
 
   return (
@@ -64,9 +76,13 @@ export default function PortfolioView({ portfolioData }) {
           <div style={styles.cardHeader} className="font-mono">CASH BALANCE (LIQUIDITY)</div>
           <div style={styles.cardValue}>{formatCurrency(cashBalance)}</div>
           <div style={styles.cardSubtext} className="font-mono">
-            Invested Ratio: <strong style={{ color: 'var(--accent-teal)' }}>
-              {((bondMarketValue / totalNetWorth) * 100).toFixed(2)}%
-            </strong>
+            {reservedBalance > 0 ? (
+              <>In Escrow: <strong style={{ color: 'var(--accent-red)' }}>{formatCurrency(reservedBalance)}</strong></>
+            ) : (
+              <>Invested Ratio: <strong style={{ color: 'var(--accent-teal)' }}>
+                {((bondMarketValue / totalNetWorth) * 100).toFixed(2)}%
+              </strong></>
+            )}
           </div>
         </div>
       </div>
@@ -103,6 +119,17 @@ export default function PortfolioView({ portfolioData }) {
             }}
             title={`Cash Balance: ${((cashBalance / totalNetWorth) * 100).toFixed(2)}%`}
           />
+          {reservedBalance > 0 && (
+            <div
+              style={{
+                width: `${(reservedBalance / totalNetWorth) * 100}%`,
+                backgroundColor: '#b91c1c',
+                height: '100%',
+                transition: 'width 0.5s ease-in-out'
+              }}
+              title={`Reserved Cash: ${((reservedBalance / totalNetWorth) * 100).toFixed(2)}%`}
+            />
+          )}
         </div>
 
         {/* Legend */}
@@ -122,53 +149,216 @@ export default function PortfolioView({ portfolioData }) {
             <span style={{ ...styles.legendColor, backgroundColor: '#334155' }} />
             <span>Cash ({((cashBalance / totalNetWorth) * 100).toFixed(1)}%)</span>
           </div>
+          {reservedBalance > 0 && (
+            <div style={styles.legendItem} className="font-mono">
+              <span style={{ ...styles.legendColor, backgroundColor: '#b91c1c' }} />
+              <span>Escrow ({((reservedBalance / totalNetWorth) * 100).toFixed(1)}%)</span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Holdings List Table */}
-      <div className="terminal-card" style={styles.tableCard}>
-        <div style={styles.sectionHeader} className="font-mono">★ BOND HOLDINGS MASTER</div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={styles.table}>
-            <thead>
-              <tr style={styles.thRow} className="font-mono">
-                <th style={styles.th}>SECURITY NAME</th>
-                <th style={styles.th}>ISIN</th>
-                <th style={styles.th}>QUANTITY</th>
-                <th style={styles.th}>AVG BUY PRICE</th>
-                <th style={styles.th}>CURRENT PRICE</th>
-                <th style={styles.th}>CURRENT VALUE</th>
-                <th style={styles.th}>UNREALIZED P&L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {holdings.map((h) => {
-                const currentVal = h.quantity * h.currentPrice;
-                const costBasis = h.quantity * h.averageBuyPrice;
-                const pl = currentVal - costBasis;
-                const plPct = (pl / costBasis) * 100;
-                
-                return (
-                  <tr key={h.isin} style={styles.tr}>
-                    <td style={styles.td} className="font-bold">{h.name}</td>
-                    <td style={styles.td} className="font-mono text-muted">{h.isin}</td>
-                    <td style={styles.td} className="font-mono">{h.quantity.toLocaleString()}</td>
-                    <td style={styles.td} className="font-mono">{h.averageBuyPrice.toFixed(4)}</td>
-                    <td style={styles.td} className="font-mono">{h.currentPrice.toFixed(4)}</td>
-                    <td style={styles.td} className="font-mono font-bold">{formatCurrency(currentVal)}</td>
-                    <td style={{
-                      ...styles.td,
-                      color: pl >= 0 ? 'var(--accent-teal)' : 'var(--accent-red)'
-                    }} className="font-mono font-bold">
-                      {pl >= 0 ? '+' : ''}{formatCurrency(pl)} ({pl >= 0 ? '+' : ''}{plPct.toFixed(4)}%)
+      {/* Sub Tab Navigation */}
+      <div style={styles.subTabContainer} className="font-mono">
+        <button
+          onClick={() => setActiveSubTab('holdings')}
+          style={{
+            ...styles.subTabBtn,
+            borderBottomColor: activeSubTab === 'holdings' ? 'var(--accent-teal)' : 'transparent',
+            color: activeSubTab === 'holdings' ? 'var(--accent-teal)' : 'var(--text-muted)'
+          }}
+        >
+          BOND HOLDINGS
+        </button>
+        <button
+          onClick={() => setActiveSubTab('pending')}
+          style={{
+            ...styles.subTabBtn,
+            borderBottomColor: activeSubTab === 'pending' ? 'var(--accent-teal)' : 'transparent',
+            color: activeSubTab === 'pending' ? 'var(--accent-teal)' : 'var(--text-muted)'
+          }}
+        >
+          PENDING ORDERS ({pendingOrders.length})
+        </button>
+        <button
+          onClick={() => setActiveSubTab('history')}
+          style={{
+            ...styles.subTabBtn,
+            borderBottomColor: activeSubTab === 'history' ? 'var(--accent-teal)' : 'transparent',
+            color: activeSubTab === 'history' ? 'var(--accent-teal)' : 'var(--text-muted)'
+          }}
+        >
+          TRANSACTION LOG
+        </button>
+      </div>
+
+      {/* Conditional Sub-Tab Rendering */}
+      {activeSubTab === 'holdings' && (
+        <div className="terminal-card" style={styles.tableCard}>
+          <div style={styles.sectionHeader} className="font-mono">★ BOND HOLDINGS MASTER</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={styles.table}>
+              <thead>
+                <tr style={styles.thRow} className="font-mono">
+                  <th style={styles.th}>SECURITY NAME</th>
+                  <th style={styles.th}>ISIN</th>
+                  <th style={styles.th}>QUANTITY</th>
+                  <th style={styles.th}>AVG BUY PRICE</th>
+                  <th style={styles.th}>CURRENT PRICE</th>
+                  <th style={styles.th}>CURRENT VALUE</th>
+                  <th style={styles.th}>UNREALIZED P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {holdings.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" style={styles.noData} className="font-mono">
+                      No holdings currently owned. Go to Market Watch to execute trades.
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ) : (
+                  holdings.map((h) => {
+                    const currentVal = h.quantity * h.currentPrice;
+                    const costBasis = h.quantity * h.averageBuyPrice;
+                    const pl = currentVal - costBasis;
+                    const plPct = (pl / costBasis) * 100;
+                    
+                    return (
+                      <tr key={h.isin} style={styles.tr}>
+                        <td style={styles.td} className="font-bold">{h.name}</td>
+                        <td style={styles.td} className="font-mono text-muted">{h.isin}</td>
+                        <td style={styles.td} className="font-mono">{h.quantity.toLocaleString()}</td>
+                        <td style={styles.td} className="font-mono">{h.averageBuyPrice.toFixed(4)}</td>
+                        <td style={styles.td} className="font-mono">{h.currentPrice.toFixed(4)}</td>
+                        <td style={styles.td} className="font-mono font-bold">{formatCurrency(currentVal)}</td>
+                        <td style={{
+                          ...styles.td,
+                          color: pl >= 0 ? 'var(--accent-teal)' : 'var(--accent-red)'
+                        }} className="font-mono font-bold">
+                          {pl >= 0 ? '+' : ''}{formatCurrency(pl)} ({pl >= 0 ? '+' : ''}{plPct.toFixed(4)}%)
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
+
+      {activeSubTab === 'pending' && (
+        <div className="terminal-card" style={styles.tableCard}>
+          <div style={styles.sectionHeader} className="font-mono">★ ACTIVE LIMIT ORDERS</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={styles.table}>
+              <thead>
+                <tr style={styles.thRow} className="font-mono">
+                  <th style={styles.th}>SECURITY NAME</th>
+                  <th style={styles.th}>ISIN</th>
+                  <th style={styles.th}>ORDER TYPE</th>
+                  <th style={styles.th}>LIMIT PRICE</th>
+                  <th style={styles.th}>QUANTITY</th>
+                  <th style={styles.th}>TOTAL EST. VALUE</th>
+                  <th style={styles.th}>SUBMISSION DATE</th>
+                  <th style={styles.th}>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan="8" style={styles.noData} className="font-mono">
+                      No pending limit orders currently active.
+                    </td>
+                  </tr>
+                ) : (
+                  pendingOrders.map((o) => {
+                    const estValue = o.quantity * o.limitPrice;
+                    return (
+                      <tr key={o.id} style={styles.tr}>
+                        <td style={styles.td} className="font-bold">{o.name}</td>
+                        <td style={styles.td} className="font-mono text-muted">{o.isin}</td>
+                        <td style={{
+                          ...styles.td,
+                          color: o.orderType === 'BUY' ? 'var(--accent-teal)' : 'var(--accent-red)'
+                        }} className="font-bold">{o.orderType}</td>
+                        <td style={styles.td} className="font-mono">₹{o.limitPrice.toFixed(4)}</td>
+                        <td style={styles.td} className="font-mono">{o.quantity.toLocaleString()}</td>
+                        <td style={styles.td} className="font-mono">₹{estValue.toLocaleString()}</td>
+                        <td style={styles.td} className="font-mono text-muted">{new Date(o.createdAt).toLocaleString()}</td>
+                        <td style={styles.td}>
+                          <button
+                            onClick={() => handleCancel(o.id)}
+                            disabled={cancellingId === o.id}
+                            className="mode-tab font-bold"
+                            style={{
+                              borderColor: 'var(--accent-red)',
+                              color: 'var(--accent-red)',
+                              backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                              padding: '2px 8px',
+                              fontSize: '11px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {cancellingId === o.id ? 'CANCELLING...' : 'CANCEL'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeSubTab === 'history' && (
+        <div className="terminal-card" style={styles.tableCard}>
+          <div style={styles.sectionHeader} className="font-mono">★ COMPLETED TRANSACTIONS LOG</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={styles.table}>
+              <thead>
+                <tr style={styles.thRow} className="font-mono">
+                  <th style={styles.th}>SECURITY NAME</th>
+                  <th style={styles.th}>ISIN</th>
+                  <th style={styles.th}>TRADE</th>
+                  <th style={styles.th}>EXECUTION RATE</th>
+                  <th style={styles.th}>QUANTITY</th>
+                  <th style={styles.th}>TOTAL SETTLED VALUE</th>
+                  <th style={styles.th}>EXECUTION TIMESTAMP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tradeHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" style={styles.noData} className="font-mono">
+                      No settled transaction history.
+                    </td>
+                  </tr>
+                ) : (
+                  tradeHistory.map((t) => {
+                    return (
+                      <tr key={t.id} style={styles.tr}>
+                        <td style={styles.td} className="font-bold">{t.name}</td>
+                        <td style={styles.td} className="font-mono text-muted">{t.isin}</td>
+                        <td style={{
+                          ...styles.td,
+                          color: t.tradeType === 'BUY' ? 'var(--accent-teal)' : 'var(--accent-red)'
+                        }} className="font-bold">{t.tradeType}</td>
+                        <td style={styles.td} className="font-mono">₹{t.executionPrice.toFixed(4)}</td>
+                        <td style={styles.td} className="font-mono">{t.quantity.toLocaleString()}</td>
+                        <td style={styles.td} className="font-mono font-bold">{formatCurrency(t.totalValue)}</td>
+                        <td style={styles.td} className="font-mono text-muted">{new Date(t.executedAt).toLocaleString()}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -253,6 +443,23 @@ const styles = {
     borderRadius: '3px',
     display: 'inline-block'
   },
+  subTabContainer: {
+    display: 'flex',
+    borderBottom: '1px solid #1e293b',
+    gap: '15px'
+  },
+  subTabBtn: {
+    padding: '8px 12px',
+    background: 'none',
+    border: 'none',
+    borderBottom: '2px solid transparent',
+    fontSize: '11px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    textAlign: 'center',
+    transition: 'all 0.2s',
+    letterSpacing: '0.5px'
+  },
   tableCard: {
     padding: '20px'
   },
@@ -274,14 +481,17 @@ const styles = {
   },
   tr: {
     borderBottom: '1px solid #0f172a',
-    transition: 'background-color 0.2s',
-    ':hover': {
-      backgroundColor: 'rgba(255,255,255,0.01)'
-    }
+    transition: 'background-color 0.2s'
   },
   td: {
     padding: '14px 12px',
     fontSize: '13px',
     color: '#e2e8f0'
+  },
+  noData: {
+    padding: '25px',
+    textAlign: 'center',
+    color: 'var(--text-muted)',
+    fontSize: '12px'
   }
 };

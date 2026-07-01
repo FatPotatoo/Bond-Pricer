@@ -15,6 +15,7 @@ import AnalyticsCharts from './components/AnalyticsCharts.jsx';
 import EducationalExplainers from './components/EducationalExplainers.jsx';
 import AuthModal from './components/AuthModal.jsx';
 import PortfolioView from './components/PortfolioView.jsx';
+import TradingPanel from './components/TradingPanel.jsx';
 
 export default function App() {
   // 1. STATE MANAGEMENT
@@ -36,6 +37,7 @@ export default function App() {
   const [token, setToken] = useState(localStorage.getItem('bondiq_token') || null);
   const [username, setUsername] = useState(localStorage.getItem('bondiq_username') || null);
   const [portfolioData, setPortfolioData] = useState(null);
+  const [ordersData, setOrdersData] = useState({ pending: [], history: [] });
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [currentTab, setCurrentTab] = useState('analytics'); // analytics, portfolio
 
@@ -105,12 +107,53 @@ export default function App() {
       });
   };
 
+  const fetchOrders = (currentToken = token) => {
+    if (!currentToken) {
+      setOrdersData({ pending: [], history: [] });
+      return;
+    }
+    
+    fetch('/api/orders', {
+      headers: {
+        'Authorization': `Bearer ${currentToken}`
+      }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch orders');
+        return res.json();
+      })
+      .then(data => {
+        setOrdersData(data);
+      })
+      .catch(err => {
+        console.log('Error fetching orders:', err.message);
+      });
+  };
+
+  const handleCancelOrder = async (orderId) => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to cancel order');
+      fetchPortfolio();
+      fetchOrders();
+    } catch (err) {
+      console.error('Cancel order error:', err.message);
+    }
+  };
+
   const handleAuthSuccess = (newToken, newUsername) => {
     localStorage.setItem('bondiq_token', newToken);
     localStorage.setItem('bondiq_username', newUsername);
     setToken(newToken);
     setUsername(newUsername);
     fetchPortfolio(newToken);
+    fetchOrders(newToken);
   };
 
   const handleLogout = () => {
@@ -119,16 +162,23 @@ export default function App() {
     setToken(null);
     setUsername(null);
     setPortfolioData(null);
+    setOrdersData({ pending: [], history: [] });
     setCurrentTab('analytics');
   };
 
   useEffect(() => {
     fetchBondsFromAPI();
-    if (token) fetchPortfolio();
+    if (token) {
+      fetchPortfolio();
+      fetchOrders();
+    }
     
     const pollInterval = setInterval(() => {
       fetchBondsFromAPI();
-      if (token) fetchPortfolio();
+      if (token) {
+        fetchPortfolio();
+        fetchOrders();
+      }
     }, 5000);
     
     return () => clearInterval(pollInterval);
@@ -312,7 +362,11 @@ export default function App() {
         </div>
 
         {currentTab === 'portfolio' ? (
-          <PortfolioView portfolioData={portfolioData} />
+          <PortfolioView 
+            portfolioData={portfolioData} 
+            ordersData={ordersData} 
+            onCancelOrder={handleCancelOrder} 
+          />
         ) : (
           <>
             {/* Core Stats Metric Cards */}
@@ -325,12 +379,23 @@ export default function App() {
 
             {/* Dynamic Calculator & SVG Analytics Charts */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.35fr', gap: '20px' }}>
-              <InteractiveCalculator
-                activeBond={activeBond}
-                metrics={activeMetrics}
-                onCleanPriceChange={handleCleanPriceChange}
-                onYieldChange={handleYieldChange}
-              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <InteractiveCalculator
+                  activeBond={activeBond}
+                  metrics={activeMetrics}
+                  onCleanPriceChange={handleCleanPriceChange}
+                  onYieldChange={handleYieldChange}
+                />
+                <TradingPanel
+                  activeBond={activeBond}
+                  token={token}
+                  userCash={portfolioData ? portfolioData.cashBalance : 10000000.0}
+                  onOrderPlaced={() => {
+                    fetchPortfolio();
+                    fetchOrders();
+                  }}
+                />
+              </div>
               <AnalyticsCharts
                 activeBond={activeBond}
                 metrics={activeMetrics}
