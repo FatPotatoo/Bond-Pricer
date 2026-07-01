@@ -61,6 +61,16 @@ export default function Sidebar({ bonds, activeBond, onSelectBond, settlementDat
             MARKET WATCH
           </button>
           <button
+            onClick={() => onTabChange('quoting')}
+            style={{
+              ...styles.navBtn,
+              borderBottomColor: currentTab === 'quoting' ? 'var(--accent-teal)' : 'transparent',
+              color: currentTab === 'quoting' ? 'var(--accent-teal)' : 'var(--text-muted)'
+            }}
+          >
+            MARKET QUOTING
+          </button>
+          <button
             onClick={() => onTabChange('portfolio')}
             style={{
               ...styles.navBtn,
@@ -73,7 +83,7 @@ export default function Sidebar({ bonds, activeBond, onSelectBond, settlementDat
         </div>
       </div>
 
-      {currentTab === 'analytics' ? (
+      {(currentTab === 'analytics' || currentTab === 'quoting') ? (
         <>
           <div className="sidebar-search">
             <input

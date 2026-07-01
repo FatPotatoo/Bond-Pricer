@@ -367,7 +367,63 @@ export default function App() {
           </div>
         </div>
 
-        {currentTab === 'portfolio' ? (
+        {currentTab === 'quoting' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '20px' }}>
+            <div>
+              <TradingPanel
+                activeBond={activeBond}
+                token={token}
+                userCash={portfolioData ? portfolioData.cashBalance : 10000000.0}
+                onOrderPlaced={() => {
+                  fetchPortfolio();
+                  fetchOrders();
+                }}
+              />
+            </div>
+            
+            <div className="terminal-card" style={{ padding: '20px', backgroundColor: '#0a0f1d', border: '1px solid #1e293b', borderRadius: '12px' }}>
+              <div style={{ fontSize: '12px', color: '#f8fafc', letterSpacing: '1px', fontWeight: 'bold', marginBottom: '15px' }} className="font-mono">
+                ★ ACTIVE SECURITY PROFILE & SANDBOX INSTRUCTIONS
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <div style={{ borderBottom: '1px solid #1e293b', paddingBottom: '12px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--accent-teal)' }}>{activeBond.name}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }} className="font-mono">{activeBond.isin}</div>
+                </div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }} className="font-mono">
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>COUPON RATE</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>{(activeBond.coupon * 100).toFixed(2)}%</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>MATURITY DATE</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>{activeBond.maturityDate}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>LIVE CLEAN PRICE</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>₹{activeBond.currentCleanPrice.toFixed(4)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>LIVE SOLVED YTM</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>{(activeBond.currentYTM * 100).toFixed(4)}%</div>
+                  </div>
+                </div>
+                
+                <div style={{ borderTop: '1px solid #1e293b', paddingTop: '15px', marginTop: '10px' }} className="font-mono">
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>SANDBOX INSTRUCTION MANUAL:</div>
+                  <ul style={{ fontSize: '11px', color: '#94a3b8', paddingLeft: '15px', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <li>You can place a <strong>Market Order</strong> to execute instantly at the current live clean price (only available during market hours).</li>
+                    <li>You can place a <strong>Limit Order</strong> at any price. For Buy orders, cash is moved to escrow. For Sell orders, G-Sec units are blocked.</li>
+                    <li>Limit orders execute automatically when playwrite updates live quotes that match or improve upon your target rate.</li>
+                    <li>View, monitor, and cancel pending limit tickets directly in the <strong>Portfolio</strong> tab under <strong>Pending Orders</strong>.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : currentTab === 'portfolio' ? (
           <PortfolioView 
             portfolioData={portfolioData} 
             ordersData={ordersData} 
@@ -385,23 +441,12 @@ export default function App() {
 
             {/* Dynamic Calculator & SVG Analytics Charts */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.35fr', gap: '20px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <InteractiveCalculator
-                  activeBond={activeBond}
-                  metrics={activeMetrics}
-                  onCleanPriceChange={handleCleanPriceChange}
-                  onYieldChange={handleYieldChange}
-                />
-                <TradingPanel
-                  activeBond={activeBond}
-                  token={token}
-                  userCash={portfolioData ? portfolioData.cashBalance : 10000000.0}
-                  onOrderPlaced={() => {
-                    fetchPortfolio();
-                    fetchOrders();
-                  }}
-                />
-              </div>
+              <InteractiveCalculator
+                activeBond={activeBond}
+                metrics={activeMetrics}
+                onCleanPriceChange={handleCleanPriceChange}
+                onYieldChange={handleYieldChange}
+              />
               <AnalyticsCharts
                 activeBond={activeBond}
                 metrics={activeMetrics}
