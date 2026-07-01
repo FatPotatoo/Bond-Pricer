@@ -48,7 +48,7 @@ export default function App() {
   const [activeBondHistory, setActiveBondHistory] = useState([]);
 
   // Fetch active bond quotes list from Express SQLite API
-  const fetchBondsFromAPI = () => {
+  const fetchBondsFromAPI = (currentActiveIsin = activeBond.isin) => {
     fetch('/api/bonds')
       .then(res => {
         if (!res.ok) throw new Error('API server returned error');
@@ -64,13 +64,19 @@ export default function App() {
           
           setBonds(mappedBonds);
           
-          // Look for live pricing timing indicators
-          const matchedActive = mappedBonds.find(b => b.isin === activeBond.isin);
-          if (matchedActive && matchedActive.lastUpdated) {
-            setLiveDataInfo({
-              lastUpdated: matchedActive.lastUpdated,
-              marketStatus: 'ACTIVE'
-            });
+          // Sync active bond clean price & YTM with live API data
+          const matchedActive = mappedBonds.find(b => b.isin === currentActiveIsin);
+          if (matchedActive) {
+            setActiveBond(matchedActive);
+            setCleanPrice(matchedActive.currentCleanPrice);
+            setYtm(matchedActive.currentYTM);
+            
+            if (matchedActive.lastUpdated) {
+              setLiveDataInfo({
+                lastUpdated: matchedActive.lastUpdated,
+                marketStatus: 'ACTIVE'
+              });
+            }
           }
         }
       })
