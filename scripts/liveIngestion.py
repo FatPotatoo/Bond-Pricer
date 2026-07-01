@@ -72,7 +72,14 @@ def scrape_ccil_quotes(lookup_map):
             
             # Wait for quotes tables to load in the DOM
             page.wait_for_selector("table", timeout=20000)
-            page.wait_for_timeout(3000) # give JS an extra 3 seconds to fetch quotes
+            
+            # Select 100 entries dropdown option to bypass pagination and load all active quotes
+            if page.query_selector('select[name="ndsomEntityTable_length"]'):
+                page.select_option('select[name="ndsomEntityTable_length"]', "100")
+                print("Changed page length option to 100 to load all active G-Sec rows.")
+                page.wait_for_timeout(2000)
+            else:
+                page.wait_for_timeout(3000) # fallback wait if dropdown is not rendered
             
             html = page.content()
             browser.close()
