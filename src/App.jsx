@@ -16,6 +16,7 @@ import EducationalExplainers from './components/EducationalExplainers.jsx';
 import AuthModal from './components/AuthModal.jsx';
 import PortfolioView from './components/PortfolioView.jsx';
 import TradingPanel from './components/TradingPanel.jsx';
+import MarketplaceBoard from './components/MarketplaceBoard.jsx';
 
 export default function App() {
   // 1. STATE MANAGEMENT
@@ -38,8 +39,9 @@ export default function App() {
   const [username, setUsername] = useState(localStorage.getItem('bondiq_username') || null);
   const [portfolioData, setPortfolioData] = useState(null);
   const [ordersData, setOrdersData] = useState({ pending: [], history: [] });
+  const [marketOrders, setMarketOrders] = useState([]);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [currentTab, setCurrentTab] = useState('analytics'); // analytics, portfolio
+  const [currentTab, setCurrentTab] = useState('analytics'); // analytics, quoting, portfolio
 
   // Live NDS-OM file state info
   const [liveDataInfo, setLiveDataInfo] = useState(null);
@@ -136,6 +138,29 @@ export default function App() {
       });
   };
 
+  const fetchMarketOrders = (currentToken = token) => {
+    if (!currentToken) {
+      setMarketOrders([]);
+      return;
+    }
+    
+    fetch('/api/market/orders', {
+      headers: {
+        'Authorization': `Bearer ${currentToken}`
+      }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch market listings');
+        return res.json();
+      })
+      .then(data => {
+        setMarketOrders(data);
+      })
+      .catch(err => {
+        console.log('Error fetching market orders:', err.message);
+      });
+  };
+
   const handleCancelOrder = async (orderId) => {
     try {
       const res = await fetch(`/api/orders/${orderId}/cancel`, {
@@ -148,6 +173,7 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || 'Failed to cancel order');
       fetchPortfolio();
       fetchOrders();
+      fetchMarketOrders();
     } catch (err) {
       console.error('Cancel order error:', err.message);
     }
@@ -160,6 +186,7 @@ export default function App() {
     setUsername(newUsername);
     fetchPortfolio(newToken);
     fetchOrders(newToken);
+    fetchMarketOrders(newToken);
   };
 
   const handleLogout = () => {
@@ -169,6 +196,7 @@ export default function App() {
     setUsername(null);
     setPortfolioData(null);
     setOrdersData({ pending: [], history: [] });
+    setMarketOrders([]);
     setCurrentTab('analytics');
   };
 
@@ -177,6 +205,7 @@ export default function App() {
     if (token) {
       fetchPortfolio();
       fetchOrders();
+      fetchMarketOrders();
     }
     
     const pollInterval = setInterval(() => {
@@ -184,6 +213,7 @@ export default function App() {
       if (token) {
         fetchPortfolio();
         fetchOrders();
+        fetchMarketOrders();
       }
     }, 5000);
     
@@ -369,7 +399,7 @@ export default function App() {
 
         {currentTab === 'quoting' ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '20px' }}>
-            <div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <TradingPanel
                 activeBond={activeBond}
                 token={token}
@@ -377,50 +407,47 @@ export default function App() {
                 onOrderPlaced={() => {
                   fetchPortfolio();
                   fetchOrders();
+                  fetchMarketOrders();
                 }}
               />
+              
+              <div className="terminal-card" style={{ padding: '20px', backgroundColor: '#0a0f1d', border: '1px solid #1e293b', borderRadius: '12px' }}>
+                <div style={{ fontSize: '11px', color: '#f8fafc', letterSpacing: '1px', fontWeight: 'bold', marginBottom: '10px' }} className="font-mono">
+                  ★ ACTIVE BOND DETAILS (CCIL REFERENCE)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }} className="font-mono text-muted">
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Coupon Rate:</span>
+                    <span style={{ color: '#e2e8f0', fontWeight: 'bold' }}>{(activeBond.coupon * 100).toFixed(2)}%</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Maturity Date:</span>
+                    <span style={{ color: '#e2e8f0', fontWeight: 'bold' }}>{activeBond.maturityDate}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>CCIL Ref Clean Price:</span>
+                    <span style={{ color: 'var(--accent-teal)', fontWeight: 'bold' }}>₹{activeBond.currentCleanPrice.toFixed(4)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>CCIL Ref Yield (YTM):</span>
+                    <span style={{ color: 'var(--accent-teal)', fontWeight: 'bold' }}>{(activeBond.currentYTM * 100).toFixed(4)}%</span>
+                  </div>
+                </div>
+              </div>
             </div>
             
-            <div className="terminal-card" style={{ padding: '20px', backgroundColor: '#0a0f1d', border: '1px solid #1e293b', borderRadius: '12px' }}>
-              <div style={{ fontSize: '12px', color: '#f8fafc', letterSpacing: '1px', fontWeight: 'bold', marginBottom: '15px' }} className="font-mono">
-                ★ ACTIVE SECURITY PROFILE & SANDBOX INSTRUCTIONS
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <div style={{ borderBottom: '1px solid #1e293b', paddingBottom: '12px' }}>
-                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--accent-teal)' }}>{activeBond.name}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }} className="font-mono">{activeBond.isin}</div>
-                </div>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }} className="font-mono">
-                  <div>
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>COUPON RATE</div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>{(activeBond.coupon * 100).toFixed(2)}%</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>MATURITY DATE</div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>{activeBond.maturityDate}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>LIVE CLEAN PRICE</div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>₹{activeBond.currentCleanPrice.toFixed(4)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>LIVE SOLVED YTM</div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>{(activeBond.currentYTM * 100).toFixed(4)}%</div>
-                  </div>
-                </div>
-                
-                <div style={{ borderTop: '1px solid #1e293b', paddingTop: '15px', marginTop: '10px' }} className="font-mono">
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>SANDBOX INSTRUCTION MANUAL:</div>
-                  <ul style={{ fontSize: '11px', color: '#94a3b8', paddingLeft: '15px', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <li>You can place a <strong>Market Order</strong> to execute instantly at the current live clean price (only available during market hours).</li>
-                    <li>You can place a <strong>Limit Order</strong> at any price. For Buy orders, cash is moved to escrow. For Sell orders, G-Sec units are blocked.</li>
-                    <li>Limit orders execute automatically when playwrite updates live quotes that match or improve upon your target rate.</li>
-                    <li>View, monitor, and cancel pending limit tickets directly in the <strong>Portfolio</strong> tab under <strong>Pending Orders</strong>.</li>
-                  </ul>
-                </div>
-              </div>
+            <div>
+              <MarketplaceBoard
+                activeBond={activeBond}
+                token={token}
+                marketOrders={marketOrders}
+                currentUsername={username}
+                onTradeExecuted={() => {
+                  fetchPortfolio();
+                  fetchOrders();
+                  fetchMarketOrders();
+                }}
+              />
             </div>
           </div>
         ) : currentTab === 'portfolio' ? (

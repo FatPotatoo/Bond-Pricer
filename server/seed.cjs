@@ -129,8 +129,7 @@ async function seed() {
       user_id INTEGER NOT NULL,
       isin TEXT NOT NULL,
       order_type TEXT NOT NULL, -- BUY, SELL
-      price_type TEXT NOT NULL, -- MARKET, LIMIT
-      limit_price REAL,
+      price REAL NOT NULL,
       quantity INTEGER NOT NULL,
       status TEXT NOT NULL, -- PENDING, FILLED, CANCELLED
       created_at TEXT NOT NULL,
@@ -143,15 +142,16 @@ async function seed() {
   await db.runAsync(`
     CREATE TABLE transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
+      buyer_id INTEGER NOT NULL,
+      seller_id INTEGER NOT NULL,
       order_id INTEGER NOT NULL,
       isin TEXT NOT NULL,
-      trade_type TEXT NOT NULL, -- BUY, SELL
       execution_price REAL NOT NULL,
       quantity INTEGER NOT NULL,
       total_value REAL NOT NULL,
       executed_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (buyer_id) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (seller_id) REFERENCES users (id) ON DELETE CASCADE,
       FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE,
       FOREIGN KEY (isin) REFERENCES securities (isin) ON DELETE CASCADE
     )

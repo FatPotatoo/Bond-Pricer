@@ -2,47 +2,46 @@ import React, { useState, useEffect } from 'react';
 
 export default function TradingPanel({ activeBond, token, userCash, onOrderPlaced }) {
   const [orderType, setOrderType] = useState('BUY'); // BUY or SELL
-  const [priceType, setPriceType] = useState('MARKET'); // MARKET or LIMIT
-  const [limitPrice, setLimitPrice] = useState('');
+  const [quotePrice, setQuotePrice] = useState('');
   const [quantity, setQuantity] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Synchronize limit price input with live market price on change
+  // Sync quote price input with CCIL live reference price when G-Sec changes
   useEffect(() => {
     if (activeBond) {
-      setLimitPrice(activeBond.currentCleanPrice.toFixed(4));
+      setQuotePrice(activeBond.currentCleanPrice.toFixed(4));
       setError('');
       setSuccess('');
     }
-  }, [activeBond, orderType, priceType]);
+  }, [activeBond, orderType]);
 
   if (!token) {
     return (
       <div style={styles.emptyContainer} className="terminal-card font-mono">
-        ★ Authenticate to access G-Sec Sandbox Trading Panel.
+        ★ Authenticate to access Sandbox Quoting Ticket.
       </div>
     );
   }
 
-  const currentPrice = activeBond ? activeBond.currentCleanPrice : 0;
-  const targetPrice = priceType === 'MARKET' ? currentPrice : parseFloat(limitPrice) || 0;
+  const currentReferencePrice = activeBond ? activeBond.currentCleanPrice : 0;
+  const priceVal = parseFloat(quotePrice) || 0;
   const qtyVal = parseInt(quantity) || 0;
-  const estimatedValue = qtyVal * targetPrice;
+  const estimatedValue = qtyVal * priceVal;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
 
-    if (qtyVal <= 0) {
-      setError('Please specify a positive lot quantity.');
+    if (priceVal <= 0) {
+      setError('Please specify a positive quote price.');
       return;
     }
 
-    if (priceType === 'LIMIT' && targetPrice <= 0) {
-      setError('Please specify a valid limit price.');
+    if (qtyVal <= 0) {
+      setError('Please specify a positive lot quantity.');
       return;
     }
 
@@ -58,8 +57,7 @@ export default function TradingPanel({ activeBond, token, userCash, onOrderPlace
         body: JSON.stringify({
           isin: activeBond.isin,
           orderType,
-          priceType,
-          limitPrice: priceType === 'LIMIT' ? targetPrice : null,
+          price: priceVal,
           quantity: qtyVal
         })
       });
@@ -67,7 +65,7 @@ export default function TradingPanel({ activeBond, token, userCash, onOrderPlace
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to submit order');
+        throw new Error(data.error || 'Failed to submit quote');
       }
 
       setSuccess(data.message);
@@ -83,11 +81,11 @@ export default function TradingPanel({ activeBond, token, userCash, onOrderPlace
   return (
     <div className="terminal-card" style={styles.container}>
       <div style={styles.header} className="font-mono">
-        ★ SANDBOX ORDER TICKET
+        ★ SUBMIT G-SEC MARKET QUOTE
       </div>
 
       <form onSubmit={handleSubmit} style={styles.form}>
-        {/* BUY / SELL Switcher */}
+        {/* BUY BIDS / SELL ASKS Switcher */}
         <div style={styles.tabContainer}>
           <button
             type="button"
@@ -99,7 +97,7 @@ export default function TradingPanel({ activeBond, token, userCash, onOrderPlace
               color: orderType === 'BUY' ? 'var(--accent-teal)' : 'var(--text-muted)'
             }}
           >
-            BUY G-SEC
+            CREATE BUY BID
           </button>
           <button
             type="button"
@@ -111,7 +109,7 @@ export default function TradingPanel({ activeBond, token, userCash, onOrderPlace
               color: orderType === 'SELL' ? 'var(--accent-red)' : 'var(--text-muted)'
             }}
           >
-            SELL G-SEC
+            CREATE SELL ASK
           </button>
         </div>
 
@@ -127,51 +125,21 @@ export default function TradingPanel({ activeBond, token, userCash, onOrderPlace
           </div>
         )}
 
-        {/* Price selection: Market or Limit */}
+        {/* Quote Price Input */}
         <div style={styles.inputGroup}>
-          <label style={styles.label} className="font-mono">PRICE TYPE</label>
-          <div style={styles.priceSelectRow}>
-            <button
-              type="button"
-              onClick={() => setPriceType('MARKET')}
-              style={{
-                ...styles.priceBtn,
-                borderColor: priceType === 'MARKET' ? 'var(--accent-teal)' : '#1e293b',
-                color: priceType === 'MARKET' ? 'var(--accent-teal)' : 'var(--text-muted)'
-              }}
-            >
-              MARKET RATE
-            </button>
-            <button
-              type="button"
-              onClick={() => setPriceType('LIMIT')}
-              style={{
-                ...styles.priceBtn,
-                borderColor: priceType === 'LIMIT' ? 'var(--accent-teal)' : '#1e293b',
-                color: priceType === 'LIMIT' ? 'var(--accent-teal)' : 'var(--text-muted)'
-              }}
-            >
-              LIMIT PRICE
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label style={styles.label} className="font-mono">QUOTE RATE (clean price)</label>
+            <span style={styles.refPrice} className="font-mono">
+              CCIL Ref Price: ₹{currentReferencePrice.toFixed(4)}
+            </span>
           </div>
-        </div>
-
-        {/* Limit Price Input */}
-        <div style={styles.inputGroup}>
-          <label style={styles.label} className="font-mono">
-            {priceType === 'LIMIT' ? 'LIMIT RATE (clean price)' : 'MARKET RATE (clean price)'}
-          </label>
           <input
             type="number"
             step="0.0001"
-            value={priceType === 'MARKET' ? currentPrice.toFixed(4) : limitPrice}
-            onChange={(e) => setLimitPrice(e.target.value)}
-            disabled={priceType === 'MARKET' || loading}
-            style={{
-              ...styles.input,
-              backgroundColor: priceType === 'MARKET' ? '#0f172a' : '#050810',
-              color: priceType === 'MARKET' ? '#64748b' : '#f8fafc'
-            }}
+            value={quotePrice}
+            onChange={(e) => setQuotePrice(e.target.value)}
+            disabled={loading}
+            style={styles.input}
           />
         </div>
 
@@ -198,11 +166,11 @@ export default function TradingPanel({ activeBond, token, userCash, onOrderPlace
         {/* Summary Card */}
         <div style={styles.summaryCard} className="font-mono">
           <div style={styles.summaryRow}>
-            <span>Available Cash:</span>
+            <span>Liquid Cash Balance:</span>
             <span style={{ fontWeight: 'bold' }}>₹{(userCash || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
           <div style={styles.summaryRow}>
-            <span>{orderType === 'BUY' ? 'Estimated Cost:' : 'Estimated Proceeds:'}</span>
+            <span>{orderType === 'BUY' ? 'Required Escrow:' : 'Proceeds on Execution:'}</span>
             <span style={{ 
               fontWeight: 'bold', 
               color: orderType === 'BUY' ? 'var(--accent-teal)' : 'var(--accent-red)' 
@@ -223,7 +191,7 @@ export default function TradingPanel({ activeBond, token, userCash, onOrderPlace
           }}
           className="mode-tab font-bold"
         >
-          {loading ? 'TRANSACTING...' : `${orderType} ${qtyVal.toLocaleString()} LOTS`}
+          {loading ? 'PUBLISHING...' : `PUBLISH ${orderType} QUOTE LISTING`}
         </button>
       </form>
     </div>
@@ -267,7 +235,7 @@ const styles = {
     padding: '10px',
     borderRadius: '6px',
     border: '1px solid',
-    fontSize: '12px',
+    fontSize: '11px',
     fontWeight: 'bold',
     cursor: 'pointer',
     textAlign: 'center',
@@ -302,21 +270,9 @@ const styles = {
     color: 'var(--text-muted)',
     letterSpacing: '0.5px'
   },
-  priceSelectRow: {
-    display: 'flex',
-    gap: '10px'
-  },
-  priceBtn: {
-    flex: 1,
-    padding: '8px',
-    backgroundColor: '#050810',
-    border: '1px solid',
-    borderRadius: '6px',
-    fontSize: '11px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    textAlign: 'center',
-    transition: 'all 0.2s'
+  refPrice: {
+    fontSize: '10px',
+    color: 'var(--text-muted)'
   },
   input: {
     backgroundColor: '#050810',

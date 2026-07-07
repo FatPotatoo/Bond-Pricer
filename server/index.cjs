@@ -264,12 +264,12 @@ const isMarketOpenIST = () => {
   return false;
 };
 
-// POST /api/orders - Submit trading quotes (Market or Limit)
+// POST /api/orders - Submit trading quotes (Bids or Asks)
 app.post('/api/orders', authenticateToken, async (req, res) => {
-  const { isin, orderType, priceType, limitPrice, quantity } = req.body;
+  const { isin, orderType, price, quantity } = req.body;
   const userId = req.user.userId;
 
-  if (!isin || !orderType || !priceType || !quantity || quantity <= 0) {
+  if (!isin || !orderType || !price || price <= 0 || !quantity || quantity <= 0) {
     return res.status(400).json({ error: 'Missing or invalid parameters' });
   }
 
@@ -277,85 +277,31 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'Invalid order type (must be BUY or SELL)' });
   }
 
-  if (priceType !== 'MARKET' && priceType !== 'LIMIT') {
-    return res.status(400).json({ error: 'Invalid price type (must be MARKET or LIMIT)' });
-  }
-
-  if (priceType === 'LIMIT' && (!limitPrice || limitPrice <= 0)) {
-    return res.status(400).json({ error: 'Limit price is required for Limit orders' });
-  }
-
-  // Market hours protection: Block Market orders if trading is closed
-  if (priceType === 'MARKET' && !isMarketOpenIST()) {
-    return res.status(400).json({ 
-      error: 'Market is currently closed. Market orders are suspended. Please place a Limit Order instead.' 
-    });
-  }
-
   try {
     const security = await db.getAsync('SELECT name FROM securities WHERE isin = ?', [isin]);
     if (!security) return res.status(404).json({ error: 'Security not found' });
 
-    const quote = await db.getAsync('SELECT clean_price FROM live_quotes WHERE isin = ?', [isin]);
-    const livePrice = quote ? quote.clean_price : null;
-
-    if (priceType === 'MARKET' && (!livePrice || livePrice <= 0)) {
-      return res.status(400).json({ error: 'Live market quote is currently unavailable.' });
-    }
-
-    const executionPrice = priceType === 'MARKET' ? livePrice : limitPrice;
-    const totalCost = quantity * executionPrice;
+    const totalCost = quantity * price;
     const createdAt = new Date().toISOString();
 
     if (orderType === 'BUY') {
       const user = await db.getAsync('SELECT cash_balance FROM users WHERE id = ?', [userId]);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
-      if (priceType === 'MARKET') {
-        if (user.cash_balance < totalCost) {
-          return res.status(400).json({ error: `Insufficient cash. Total cost: ₹${totalCost.toLocaleString()}, Cash balance: ₹${user.cash_balance.toLocaleString()}` });
-        }
-
-        // Execute immediately
-        await db.runAsync('UPDATE users SET cash_balance = cash_balance - ? WHERE id = ?', [totalCost, userId]);
-        
-        const holding = await db.getAsync('SELECT quantity, average_buy_price FROM portfolios WHERE user_id = ? AND isin = ?', [userId, isin]);
-        if (holding) {
-          const newQty = holding.quantity + quantity;
-          const newAvg = ((holding.quantity * holding.average_buy_price) + totalCost) / newQty;
-          await db.runAsync('UPDATE portfolios SET quantity = ?, average_buy_price = ? WHERE user_id = ? AND isin = ?', [newQty, newAvg, userId, isin]);
-        } else {
-          await db.runAsync('INSERT INTO portfolios (user_id, isin, quantity, average_buy_price) VALUES (?, ?, ?, ?)', [userId, isin, quantity, executionPrice]);
-        }
-
-        // Log completed order and transaction
-        await db.runAsync(`
-          INSERT INTO orders (user_id, isin, order_type, price_type, limit_price, quantity, status, created_at, executed_at)
-          VALUES (?, ?, 'BUY', 'MARKET', NULL, ?, 'FILLED', ?, ?)
-        `, [userId, isin, quantity, createdAt, createdAt]);
-
-        const orderRecord = await db.getAsync('SELECT id FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 1', [userId]);
-        await db.runAsync(`
-          INSERT INTO transactions (user_id, order_id, isin, trade_type, execution_price, quantity, total_value, executed_at)
-          VALUES (?, ?, ?, 'BUY', ?, ?, ?, ?)
-        `, [userId, orderRecord.id, isin, executionPrice, quantity, totalCost, createdAt]);
-
-        return res.json({ success: true, status: 'FILLED', message: `Market Buy of ${quantity.toLocaleString()} units completed at ₹${executionPrice.toFixed(4)}` });
-      } else {
-        // LIMIT BUY - Reserve Cash Escrow
-        if (user.cash_balance < totalCost) {
-          return res.status(400).json({ error: `Insufficient cash. Required: ₹${totalCost.toLocaleString()}, Cash balance: ₹${user.cash_balance.toLocaleString()}` });
-        }
-
-        await db.runAsync('UPDATE users SET cash_balance = cash_balance - ?, reserved_balance = reserved_balance + ? WHERE id = ?', [totalCost, totalCost, userId]);
-        
-        await db.runAsync(`
-          INSERT INTO orders (user_id, isin, order_type, price_type, limit_price, quantity, status, created_at)
-          VALUES (?, ?, 'BUY', 'LIMIT', ?, ?, 'PENDING', ?)
-        `, [userId, isin, limitPrice, quantity, createdAt]);
-
-        return res.json({ success: true, status: 'PENDING', message: `Limit Buy of ${quantity.toLocaleString()} units placed at ₹${limitPrice.toFixed(4)}` });
+      if (user.cash_balance < totalCost) {
+        return res.status(400).json({ error: `Insufficient cash. Total cost: ₹${totalCost.toLocaleString()}, Cash balance: ₹${user.cash_balance.toLocaleString()}` });
       }
+
+      // Move cash to escrow
+      await db.runAsync('UPDATE users SET cash_balance = cash_balance - ?, reserved_balance = reserved_balance + ? WHERE id = ?', [totalCost, totalCost, userId]);
+
+      // Insert pending buy quote
+      await db.runAsync(`
+        INSERT INTO orders (user_id, isin, order_type, price, quantity, status, created_at)
+        VALUES (?, ?, 'BUY', ?, ?, 'PENDING', ?)
+      `, [userId, isin, price, quantity, createdAt]);
+
+      return res.json({ success: true, message: `Buy Quote of ${quantity.toLocaleString()} lots listed successfully at ₹${price.toFixed(4)}` });
     } else {
       // SELL ORDER
       const holding = await db.getAsync('SELECT quantity FROM portfolios WHERE user_id = ? AND isin = ?', [userId, isin]);
@@ -372,50 +318,164 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         return res.status(400).json({ error: `Insufficient bond holdings. Available: ${availableQty.toLocaleString()}, Requested: ${quantity.toLocaleString()}` });
       }
 
-      if (priceType === 'MARKET') {
-        const proceeds = quantity * livePrice;
-        await db.runAsync('UPDATE users SET cash_balance = cash_balance + ? WHERE id = ?', [proceeds, userId]);
+      // Insert pending sell quote
+      await db.runAsync(`
+        INSERT INTO orders (user_id, isin, order_type, price, quantity, status, created_at)
+        VALUES (?, ?, 'SELL', ?, ?, 'PENDING', ?)
+      `, [userId, isin, price, quantity, createdAt]);
 
-        if (holding.quantity === quantity) {
-          await db.runAsync('DELETE FROM portfolios WHERE user_id = ? AND isin = ?', [userId, isin]);
-        } else {
-          await db.runAsync('UPDATE portfolios SET quantity = quantity - ? WHERE user_id = ? AND isin = ?', [quantity, userId, isin]);
-        }
-
-        await db.runAsync(`
-          INSERT INTO orders (user_id, isin, order_type, price_type, limit_price, quantity, status, created_at, executed_at)
-          VALUES (?, ?, 'SELL', 'MARKET', NULL, ?, 'FILLED', ?, ?)
-        `, [userId, isin, quantity, createdAt, createdAt]);
-
-        const orderRecord = await db.getAsync('SELECT id FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 1', [userId]);
-        await db.runAsync(`
-          INSERT INTO transactions (user_id, order_id, isin, trade_type, execution_price, quantity, total_value, executed_at)
-          VALUES (?, ?, ?, 'SELL', ?, ?, ?, ?)
-        `, [userId, orderRecord.id, isin, livePrice, quantity, proceeds, createdAt]);
-
-        return res.json({ success: true, status: 'FILLED', message: `Market Sell of ${quantity.toLocaleString()} units completed at ₹${livePrice.toFixed(4)}` });
-      } else {
-        // LIMIT SELL - Blocked because pendingSells is checked above
-        await db.runAsync(`
-          INSERT INTO orders (user_id, isin, order_type, price_type, limit_price, quantity, status, created_at)
-          VALUES (?, ?, 'SELL', 'LIMIT', ?, ?, 'PENDING', ?)
-        `, [userId, isin, limitPrice, quantity, createdAt]);
-
-        return res.json({ success: true, status: 'PENDING', message: `Limit Sell of ${quantity.toLocaleString()} units placed at ₹${limitPrice.toFixed(4)}` });
-      }
+      return res.json({ success: true, message: `Sell Quote of ${quantity.toLocaleString()} lots listed successfully at ₹${price.toFixed(4)}` });
     }
   } catch (err) {
     console.error('Order creation error:', err.message);
-    res.status(500).json({ error: 'Internal Database Error during order placement' });
+    res.status(500).json({ error: 'Internal Database Error during quote placement' });
   }
 });
 
-// GET /api/orders - Get user's orders and transaction history
+// GET /api/market/orders - Public Marketplace Board listings (all active pending orders)
+app.get('/api/market/orders', authenticateToken, async (req, res) => {
+  try {
+    const orders = await db.allAsync(`
+      SELECT o.id, o.user_id AS userId, u.username, o.isin, s.name, o.order_type AS orderType, o.price, o.quantity, o.created_at AS createdAt
+      FROM orders o
+      JOIN users u ON o.user_id = u.id
+      JOIN securities s ON o.isin = s.isin
+      WHERE o.status = 'PENDING'
+      ORDER BY o.price DESC, o.created_at ASC
+    `);
+    res.json(orders);
+  } catch (err) {
+    console.error('Fetch market orders error:', err.message);
+    res.status(500).json({ error: 'Internal Database Error fetching global orders book' });
+  }
+});
+
+// POST /api/orders/:id/accept - Accept a student listing (Direct P2P Settlement)
+app.post('/api/orders/:id/accept', authenticateToken, async (req, res) => {
+  const orderId = req.params.id;
+  const currentUserId = req.user.userId;
+
+  try {
+    const order = await db.getAsync('SELECT * FROM orders WHERE id = ?', [orderId]);
+    if (!order) return res.status(404).json({ error: 'Listing not found' });
+    if (order.status !== 'PENDING') return res.status(400).json({ error: 'This listing is no longer active' });
+    
+    if (order.user_id === currentUserId) {
+      return res.status(400).json({ error: 'You cannot accept your own listing!' });
+    }
+
+    const orderCreatorId = order.user_id;
+    const isin = order.isin;
+    const price = order.price;
+    const quantity = order.quantity;
+    const totalValue = quantity * price;
+    const executedAt = new Date().toISOString();
+
+    if (order.order_type === 'BUY') {
+      // Creator (A) is buying. Current User (B) is selling.
+      const sellerHolding = await db.getAsync('SELECT quantity FROM portfolios WHERE user_id = ? AND isin = ?', [currentUserId, isin]);
+      
+      const pendingSells = await db.getAsync(`
+        SELECT SUM(quantity) AS total FROM orders 
+        WHERE user_id = ? AND isin = ? AND order_type = 'SELL' AND status = 'PENDING'
+      `, [currentUserId, isin]);
+      const pendingQty = pendingSells && pendingSells.total ? pendingSells.total : 0;
+      const sellerAvailableQty = sellerHolding ? (sellerHolding.quantity - pendingQty) : 0;
+
+      if (sellerAvailableQty < quantity) {
+        return res.status(400).json({ error: `Insufficient holdings. You need ${quantity.toLocaleString()} units to fill this buy order.` });
+      }
+
+      // Execute P2P Settlement
+      // Buyer: Creator gets cash balance updated (deduct from escrow reserved)
+      await db.runAsync('UPDATE users SET reserved_balance = reserved_balance - ? WHERE id = ?', [totalValue, orderCreatorId]);
+      
+      // Seller: Current User gets paid cash
+      await db.runAsync('UPDATE users SET cash_balance = cash_balance + ? WHERE id = ?', [totalValue, currentUserId]);
+
+      // Seller G-Sec Transfer
+      if (sellerHolding.quantity === quantity) {
+        await db.runAsync('DELETE FROM portfolios WHERE user_id = ? AND isin = ?', [currentUserId, isin]);
+      } else {
+        await db.runAsync('UPDATE portfolios SET quantity = quantity - ? WHERE user_id = ? AND isin = ?', [quantity, currentUserId, isin]);
+      }
+
+      // Buyer G-Sec Transfer
+      const buyerHolding = await db.getAsync('SELECT quantity, average_buy_price FROM portfolios WHERE user_id = ? AND isin = ?', [orderCreatorId, isin]);
+      if (buyerHolding) {
+        const newQty = buyerHolding.quantity + quantity;
+        const newAvg = ((buyerHolding.quantity * buyerHolding.average_buy_price) + totalValue) / newQty;
+        await db.runAsync('UPDATE portfolios SET quantity = ?, average_buy_price = ? WHERE user_id = ? AND isin = ?', [newQty, newAvg, orderCreatorId, isin]);
+      } else {
+        await db.runAsync('INSERT INTO portfolios (user_id, isin, quantity, average_buy_price) VALUES (?, ?, ?, ?)', [orderCreatorId, isin, quantity, price]);
+      }
+
+      // Mark filled
+      await db.runAsync("UPDATE orders SET status = 'FILLED', executed_at = ? WHERE id = ?", [executedAt, orderId]);
+
+      // Log P2P Transaction
+      await db.runAsync(`
+        INSERT INTO transactions (buyer_id, seller_id, order_id, isin, execution_price, quantity, total_value, executed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [orderCreatorId, currentUserId, orderId, isin, price, quantity, totalValue, executedAt]);
+
+      return res.json({ success: true, message: `Successfully filled Student Quote Buy. Sold ${quantity.toLocaleString()} lots at ₹${price.toFixed(4)}` });
+
+    } else {
+      // Creator (A) is selling. Current User (B) is buying.
+      const buyerUser = await db.getAsync('SELECT cash_balance FROM users WHERE id = ?', [currentUserId]);
+      if (!buyerUser || buyerUser.cash_balance < totalValue) {
+        return res.status(400).json({ error: `Insufficient cash. Total cost: ₹${totalValue.toLocaleString()}, Cash balance: ₹${buyerUser.cash_balance.toLocaleString()}` });
+      }
+
+      // Execute P2P Settlement
+      // Buyer: Current User gets cash deducted
+      await db.runAsync('UPDATE users SET cash_balance = cash_balance - ? WHERE id = ?', [totalValue, currentUserId]);
+      
+      // Seller: Creator gets cash credited
+      await db.runAsync('UPDATE users SET cash_balance = cash_balance + ? WHERE id = ?', [totalValue, orderCreatorId]);
+
+      // Seller G-Sec Transfer
+      const sellerHolding = await db.getAsync('SELECT quantity FROM portfolios WHERE user_id = ? AND isin = ?', [orderCreatorId, isin]);
+      if (sellerHolding.quantity === quantity) {
+        await db.runAsync('DELETE FROM portfolios WHERE user_id = ? AND isin = ?', [orderCreatorId, isin]);
+      } else {
+        await db.runAsync('UPDATE portfolios SET quantity = quantity - ? WHERE user_id = ? AND isin = ?', [quantity, orderCreatorId, isin]);
+      }
+
+      // Buyer G-Sec Transfer
+      const buyerHolding = await db.getAsync('SELECT quantity, average_buy_price FROM portfolios WHERE user_id = ? AND isin = ?', [currentUserId, isin]);
+      if (buyerHolding) {
+        const newQty = buyerHolding.quantity + quantity;
+        const newAvg = ((buyerHolding.quantity * buyerHolding.average_buy_price) + totalValue) / newQty;
+        await db.runAsync('UPDATE portfolios SET quantity = ?, average_buy_price = ? WHERE user_id = ? AND isin = ?', [newQty, newAvg, currentUserId, isin]);
+      } else {
+        await db.runAsync('INSERT INTO portfolios (user_id, isin, quantity, average_buy_price) VALUES (?, ?, ?, ?)', [currentUserId, isin, quantity, price]);
+      }
+
+      // Mark filled
+      await db.runAsync("UPDATE orders SET status = 'FILLED', executed_at = ? WHERE id = ?", [executedAt, orderId]);
+
+      // Log P2P Transaction
+      await db.runAsync(`
+        INSERT INTO transactions (buyer_id, seller_id, order_id, isin, execution_price, quantity, total_value, executed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [currentUserId, orderCreatorId, orderId, isin, price, quantity, totalValue, executedAt]);
+
+      return res.json({ success: true, message: `Successfully filled Student Quote Sell. Purchased ${quantity.toLocaleString()} lots at ₹${price.toFixed(4)}` });
+    }
+  } catch (err) {
+    console.error('Accept trade error:', err.message);
+    res.status(500).json({ error: 'Internal Database Error during trade settlement' });
+  }
+});
+
+// GET /api/orders - Get user's orders and transaction history logs
 app.get('/api/orders', authenticateToken, async (req, res) => {
   const userId = req.user.userId;
   try {
     const pending = await db.allAsync(`
-      SELECT o.id, o.isin, s.name, o.order_type AS orderType, o.price_type AS priceType, o.limit_price AS limitPrice, o.quantity, o.created_at AS createdAt
+      SELECT o.id, o.isin, s.name, o.order_type AS orderType, o.price, o.quantity, o.created_at AS createdAt
       FROM orders o
       JOIN securities s ON o.isin = s.isin
       WHERE o.user_id = ? AND o.status = 'PENDING'
@@ -423,12 +483,23 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     `, [userId]);
 
     const history = await db.allAsync(`
-      SELECT t.id, t.isin, s.name, t.trade_type AS tradeType, t.execution_price AS executionPrice, t.quantity, t.total_value AS totalValue, t.executed_at AS executedAt
+      SELECT 
+        t.id, 
+        t.isin, 
+        s.name, 
+        CASE WHEN t.buyer_id = ? THEN 'BUY' ELSE 'SELL' END AS tradeType,
+        t.execution_price AS executionPrice, 
+        t.quantity, 
+        t.total_value AS totalValue, 
+        t.executed_at AS executedAt,
+        CASE WHEN t.buyer_id = ? THEN u_sel.username ELSE u_buy.username END AS counterparty
       FROM transactions t
       JOIN securities s ON t.isin = s.isin
-      WHERE t.user_id = ?
+      JOIN users u_buy ON t.buyer_id = u_buy.id
+      JOIN users u_sel ON t.seller_id = u_sel.id
+      WHERE t.buyer_id = ? OR t.seller_id = ?
       ORDER BY t.id DESC
-    `, [userId]);
+    `, [userId, userId, userId, userId]);
 
     res.json({ pending, history });
   } catch (err) {
@@ -437,7 +508,7 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/orders/:id/cancel - Cancel pending limit orders
+// POST /api/orders/:id/cancel - Cancel pending personal listing
 app.post('/api/orders/:id/cancel', authenticateToken, async (req, res) => {
   const orderId = req.params.id;
   const userId = req.user.userId;
@@ -454,12 +525,12 @@ app.post('/api/orders/:id/cancel', authenticateToken, async (req, res) => {
     await db.runAsync("UPDATE orders SET status = 'CANCELLED' WHERE id = ?", [orderId]);
 
     // Refund reserved buy cash
-    if (order.order_type === 'BUY' && order.price_type === 'LIMIT') {
-      const reservedCost = order.quantity * order.limit_price;
+    if (order.order_type === 'BUY') {
+      const reservedCost = order.quantity * order.price;
       await db.runAsync('UPDATE users SET cash_balance = cash_balance + ?, reserved_balance = reserved_balance - ? WHERE id = ?', [reservedCost, reservedCost, userId]);
     }
 
-    res.json({ success: true, message: 'Order cancelled successfully' });
+    res.json({ success: true, message: 'Order listing cancelled successfully' });
   } catch (err) {
     console.error('Cancel order error:', err.message);
     res.status(500).json({ error: 'Internal Database Error cancelling order' });
@@ -495,92 +566,8 @@ function runScraper(scriptPath) {
     if (output) {
       if (output.includes('successfully') || output.includes('updated')) {
         console.log(`[Auto-Scheduler Ingest]: ${output}`);
-        // Run the matching engine whenever fresh quotes update SQLite
-        runMatchingEngine();
       }
     }
   });
-}
-
-// Background Matching Engine checking pending limit orders against CCIL live prices
-async function runMatchingEngine() {
-  console.log('[Matching-Engine]: Evaluating pending limit orders...');
-  try {
-    const pendingOrders = await db.allAsync("SELECT * FROM orders WHERE status = 'PENDING'");
-    if (pendingOrders.length === 0) return;
-
-    for (const order of pendingOrders) {
-      const quote = await db.getAsync('SELECT clean_price FROM live_quotes WHERE isin = ?', [order.isin]);
-      if (!quote || quote.clean_price <= 0) continue;
-      
-      const livePrice = quote.clean_price;
-      const executedAt = new Date().toISOString();
-
-      if (order.order_type === 'BUY') {
-        // Trigger if live market price is equal or cheaper than the user's target limit
-        if (livePrice <= order.limit_price) {
-          console.log(`[Matching-Engine]: TRIGGER Limit Buy order #${order.id} for ISIN ${order.isin}. Target: ₹${order.limit_price}, Current: ₹${livePrice}`);
-          
-          // Better Price Execution (Option B): Calculate cost based on better livePrice
-          const actualCost = order.quantity * livePrice;
-          const reservedCost = order.quantity * order.limit_price;
-          const priceSavings = reservedCost - actualCost; // refunded savings
-
-          // Update user balances (deduct reserved balance, refund savings to cash)
-          await db.runAsync('UPDATE users SET reserved_balance = reserved_balance - ?, cash_balance = cash_balance + ? WHERE id = ?', [reservedCost, priceSavings, order.user_id]);
-
-          // Update portfolio holdings
-          const holding = await db.getAsync('SELECT quantity, average_buy_price FROM portfolios WHERE user_id = ? AND isin = ?', [order.user_id, order.isin]);
-          if (holding) {
-            const newQty = holding.quantity + order.quantity;
-            const newAvg = ((holding.quantity * holding.average_buy_price) + actualCost) / newQty;
-            await db.runAsync('UPDATE portfolios SET quantity = ?, average_buy_price = ? WHERE user_id = ? AND isin = ?', [newQty, newAvg, order.user_id, order.isin]);
-          } else {
-            await db.runAsync('INSERT INTO portfolios (user_id, isin, quantity, average_buy_price) VALUES (?, ?, ?, ?)', [order.user_id, order.isin, order.quantity, livePrice]);
-          }
-
-          // Mark order filled
-          await db.runAsync("UPDATE orders SET status = 'FILLED', executed_at = ? WHERE id = ?", [executedAt, order.id]);
-
-          // Log transaction
-          await db.runAsync(`
-            INSERT INTO transactions (user_id, order_id, isin, trade_type, execution_price, quantity, total_value, executed_at)
-            VALUES (?, ?, ?, 'BUY', ?, ?, ?, ?)
-          `, [order.user_id, order.id, order.isin, livePrice, order.quantity, actualCost, executedAt]);
-        }
-      } else {
-        // Trigger if live market price is equal or higher than user's target limit
-        if (livePrice >= order.limit_price) {
-          console.log(`[Matching-Engine]: TRIGGER Limit Sell order #${order.id} for ISIN ${order.isin}. Target: ₹${order.limit_price}, Current: ₹${livePrice}`);
-
-          const actualProceeds = order.quantity * livePrice;
-
-          // Add proceeds to user cash
-          await db.runAsync('UPDATE users SET cash_balance = cash_balance + ? WHERE id = ?', [actualProceeds, order.user_id]);
-
-          // Deduct from holdings
-          const holding = await db.getAsync('SELECT quantity FROM portfolios WHERE user_id = ? AND isin = ?', [order.user_id, order.isin]);
-          if (holding) {
-            if (holding.quantity === order.quantity) {
-              await db.runAsync('DELETE FROM portfolios WHERE user_id = ? AND isin = ?', [order.user_id, order.isin]);
-            } else {
-              await db.runAsync('UPDATE portfolios SET quantity = quantity - ? WHERE user_id = ? AND isin = ?', [order.quantity, order.user_id, order.isin]);
-            }
-          }
-
-          // Mark order filled
-          await db.runAsync("UPDATE orders SET status = 'FILLED', executed_at = ? WHERE id = ?", [executedAt, order.id]);
-
-          // Log transaction
-          await db.runAsync(`
-            INSERT INTO transactions (user_id, order_id, isin, trade_type, execution_price, quantity, total_value, executed_at)
-            VALUES (?, ?, ?, 'SELL', ?, ?, ?, ?)
-          `, [order.user_id, order.id, order.isin, livePrice, order.quantity, actualProceeds, executedAt]);
-        }
-      }
-    }
-  } catch (err) {
-    console.error('Matching engine run error:', err.message);
-  }
 }
 

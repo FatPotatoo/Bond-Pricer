@@ -249,17 +249,17 @@ export default function PortfolioView({ portfolioData, ordersData, onCancelOrder
 
       {activeSubTab === 'pending' && (
         <div className="terminal-card" style={styles.tableCard}>
-          <div style={styles.sectionHeader} className="font-mono">★ ACTIVE LIMIT ORDERS</div>
+          <div style={styles.sectionHeader} className="font-mono">★ ACTIVE MARKET QUOTE LISTINGS</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={styles.table}>
               <thead>
                 <tr style={styles.thRow} className="font-mono">
                   <th style={styles.th}>SECURITY NAME</th>
                   <th style={styles.th}>ISIN</th>
-                  <th style={styles.th}>ORDER TYPE</th>
-                  <th style={styles.th}>LIMIT PRICE</th>
+                  <th style={styles.th}>LISTING TYPE</th>
+                  <th style={styles.th}>QUOTE PRICE</th>
                   <th style={styles.th}>QUANTITY</th>
-                  <th style={styles.th}>TOTAL EST. VALUE</th>
+                  <th style={styles.th}>TOTAL VALUE</th>
                   <th style={styles.th}>SUBMISSION DATE</th>
                   <th style={styles.th}>ACTIONS</th>
                 </tr>
@@ -268,12 +268,12 @@ export default function PortfolioView({ portfolioData, ordersData, onCancelOrder
                 {pendingOrders.length === 0 ? (
                   <tr>
                     <td colSpan="8" style={styles.noData} className="font-mono">
-                      No pending limit orders currently active.
+                      No active quote listings.
                     </td>
                   </tr>
                 ) : (
                   pendingOrders.map((o) => {
-                    const estValue = o.quantity * o.limitPrice;
+                    const estValue = o.quantity * o.price;
                     return (
                       <tr key={o.id} style={styles.tr}>
                         <td style={styles.td} className="font-bold">{o.name}</td>
@@ -282,7 +282,7 @@ export default function PortfolioView({ portfolioData, ordersData, onCancelOrder
                           ...styles.td,
                           color: o.orderType === 'BUY' ? 'var(--accent-teal)' : 'var(--accent-red)'
                         }} className="font-bold">{o.orderType}</td>
-                        <td style={styles.td} className="font-mono">₹{o.limitPrice.toFixed(4)}</td>
+                        <td style={styles.td} className="font-mono">₹{o.price.toFixed(4)}</td>
                         <td style={styles.td} className="font-mono">{o.quantity.toLocaleString()}</td>
                         <td style={styles.td} className="font-mono">₹{estValue.toLocaleString()}</td>
                         <td style={styles.td} className="font-mono text-muted">{new Date(o.createdAt).toLocaleString()}</td>
@@ -323,6 +323,7 @@ export default function PortfolioView({ portfolioData, ordersData, onCancelOrder
                   <th style={styles.th}>SECURITY NAME</th>
                   <th style={styles.th}>ISIN</th>
                   <th style={styles.th}>TRADE</th>
+                  <th style={styles.th}>COUNTERPARTY</th>
                   <th style={styles.th}>EXECUTION RATE</th>
                   <th style={styles.th}>QUANTITY</th>
                   <th style={styles.th}>TOTAL SETTLED VALUE</th>
@@ -332,7 +333,7 @@ export default function PortfolioView({ portfolioData, ordersData, onCancelOrder
               <tbody>
                 {tradeHistory.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={styles.noData} className="font-mono">
+                    <td colSpan="8" style={styles.noData} className="font-mono">
                       No settled transaction history.
                     </td>
                   </tr>
@@ -346,6 +347,7 @@ export default function PortfolioView({ portfolioData, ordersData, onCancelOrder
                           ...styles.td,
                           color: t.tradeType === 'BUY' ? 'var(--accent-teal)' : 'var(--accent-red)'
                         }} className="font-bold">{t.tradeType}</td>
+                        <td style={styles.td} className="font-mono">👤 {t.counterparty ? t.counterparty.toUpperCase() : 'MARKET'}</td>
                         <td style={styles.td} className="font-mono">₹{t.executionPrice.toFixed(4)}</td>
                         <td style={styles.td} className="font-mono">{t.quantity.toLocaleString()}</td>
                         <td style={styles.td} className="font-mono font-bold">{formatCurrency(t.totalValue)}</td>
