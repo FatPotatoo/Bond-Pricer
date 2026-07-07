@@ -1,207 +1,164 @@
 import React, { useState } from 'react';
 
-export default function Sidebar({ bonds, activeBond, onSelectBond, settlementDate, currentTab, onTabChange, liveDataInfo }) {
+export default function Sidebar({ bonds, activeBond, onSelectBond, settlementDate, liveDataInfo }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [maturityFilter, setMaturityFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('name'); // name, maturity, ytm
+  const [maturityFilter, setMaturityFilter] = useState('all'); // all, short, med, long
+  const [sortBy, setSortBy] = useState('nomenclature'); // nomenclature, yield, tenor
 
-  // Helper to determine maturity bucket (years from settlementDate)
-  const getMaturityYears = (bond) => {
-    const sDate = new Date(settlementDate);
-    const mDate = new Date(bond.maturityDate);
-    const diffTime = Math.max(0, mDate - sDate);
-    return diffTime / (1000 * 60 * 60 * 24 * 365.25);
+  // Helper to parse tenor (years to maturity)
+  const getTenorYears = (maturityDateStr) => {
+    try {
+      const maturity = new Date(maturityDateStr);
+      const settlement = new Date(settlementDate);
+      const diffTime = maturity - settlement;
+      if (isNaN(diffTime)) return 0.0;
+      const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
+      return Math.max(0.0, parseFloat(diffYears.toFixed(1)));
+    } catch {
+      return 0.0;
+    }
   };
 
-  // Filter and sort logic
-  const filteredBonds = bonds
-    .filter((bond) => {
-      const matchesSearch =
-        bond.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        bond.isin.toLowerCase().includes(searchQuery.toLowerCase());
+  // 1. FILTERING
+  const filteredBonds = bonds.filter((bond) => {
+    // Search query filter
+    const matchesSearch =
+      bond.isin.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      bond.name.toLowerCase().includes(searchQuery.toLowerCase());
 
-      const yearsToMaturity = getMaturityYears(bond);
-      let matchesMaturity = true;
-      if (maturityFilter === 'short') matchesMaturity = yearsToMaturity < 3;
-      else if (maturityFilter === 'medium') matchesMaturity = yearsToMaturity >= 3 && yearsToMaturity <= 7;
-      else if (maturityFilter === 'long') matchesMaturity = yearsToMaturity > 7;
+    if (!matchesSearch) return false;
 
-      return matchesSearch && matchesMaturity;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'name') {
-        return a.name.localeCompare(b.name);
-      } else if (sortBy === 'maturity') {
-        return new Date(a.maturityDate) - new Date(b.maturityDate);
-      } else if (sortBy === 'ytm') {
-        return b.currentYTM - a.currentYTM;
-      }
-      return 0;
-    });
+    // Maturity range filter
+    const tenor = getTenorYears(bond.maturityDate);
+    if (maturityFilter === 'short') return tenor < 3.0;
+    if (maturityFilter === 'med') return tenor >= 3.0 && tenor <= 7.0;
+    if (maturityFilter === 'long') return tenor > 7.0;
+
+    return true;
+  });
+
+  // 2. SORTING
+  const sortedBonds = [...filteredBonds].sort((a, b) => {
+    if (sortBy === 'yield') {
+      return b.currentYTM - a.currentYTM; // highest yield first
+    }
+    if (sortBy === 'tenor') {
+      const tenorA = getTenorYears(a.maturityDate);
+      const tenorB = getTenorYears(b.maturityDate);
+      return tenorA - tenorB; // shortest tenor first
+    }
+    // Default: nomenclature/name alphabetical
+    return a.name.localeCompare(b.name);
+  });
 
   return (
     <aside className="terminal-sidebar">
-      <div className="sidebar-header" style={{ marginBottom: '10px' }}>
+      <div className="sidebar-header">
         <div className="logo-container">
           <span className="logo-glow"></span>
           <h1 className="app-title">Bond<span>IQ</span></h1>
         </div>
-        <p className="app-subtitle" style={{ marginBottom: '15px' }}>Bloomberg for G-Secs</p>
-        
-        {/* Navigation Tabs */}
-        <div style={styles.navContainer} className="font-mono">
-          <button
-            onClick={() => onTabChange('analytics')}
-            style={{
-              ...styles.navBtn,
-              borderBottomColor: currentTab === 'analytics' ? 'var(--accent-teal)' : 'transparent',
-              color: currentTab === 'analytics' ? 'var(--accent-teal)' : 'var(--text-muted)'
-            }}
-          >
-            MARKET WATCH
+        <p className="app-subtitle">Bloomberg for G-Secs</p>
+      </div>
+
+      <div className="sidebar-search">
+        <input
+          type="text"
+          placeholder="Search by ISIN or Name..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="search-input"
+        />
+        {searchQuery && (
+          <button className="clear-search" onClick={() => setSearchQuery('')}>
+            &times;
           </button>
-          <button
-            onClick={() => onTabChange('quoting')}
-            style={{
-              ...styles.navBtn,
-              borderBottomColor: currentTab === 'quoting' ? 'var(--accent-teal)' : 'transparent',
-              color: currentTab === 'quoting' ? 'var(--accent-teal)' : 'var(--text-muted)'
-            }}
+        )}
+      </div>
+
+      <div className="sidebar-filters">
+        <div className="filter-group">
+          <label>MATURITY</label>
+          <div className="button-group">
+            <button
+              className={maturityFilter === 'all' ? 'filter-btn active' : 'filter-btn'}
+              onClick={() => setMaturityFilter('all')}
+            >
+              All
+            </button>
+            <button
+              className={maturityFilter === 'short' ? 'filter-btn active' : 'filter-btn'}
+              onClick={() => setMaturityFilter('short')}
+              title="Under 3 Years"
+            >
+              Short
+            </button>
+            <button
+              className={maturityFilter === 'med' ? 'filter-btn active' : 'filter-btn'}
+              onClick={() => setMaturityFilter('med')}
+              title="3 - 7 Years"
+            >
+              Med
+            </button>
+            <button
+              className={maturityFilter === 'long' ? 'filter-btn active' : 'filter-btn'}
+              onClick={() => setMaturityFilter('long')}
+              title="Over 7 Years"
+            >
+              Long
+            </button>
+          </div>
+        </div>
+
+        <div className="filter-group">
+          <label>SORT BY</label>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="sort-select"
           >
-            SUBMIT QUOTE
-          </button>
-          <button
-            onClick={() => onTabChange('marketplace')}
-            style={{
-              ...styles.navBtn,
-              borderBottomColor: currentTab === 'marketplace' ? 'var(--accent-teal)' : 'transparent',
-              color: currentTab === 'marketplace' ? 'var(--accent-teal)' : 'var(--text-muted)'
-            }}
-          >
-            MARKETPLACE
-          </button>
-          <button
-            onClick={() => onTabChange('portfolio')}
-            style={{
-              ...styles.navBtn,
-              borderBottomColor: currentTab === 'portfolio' ? 'var(--accent-teal)' : 'transparent',
-              color: currentTab === 'portfolio' ? 'var(--accent-teal)' : 'var(--text-muted)'
-            }}
-          >
-            PORTFOLIO
-          </button>
+            <option value="nomenclature">Nomenclature</option>
+            <option value="yield">solved YTM</option>
+            <option value="tenor">Tenor</option>
+          </select>
         </div>
       </div>
 
-      {(currentTab === 'analytics' || currentTab === 'quoting' || currentTab === 'marketplace') ? (
-        <>
-          <div className="sidebar-search">
-            <input
-              type="text"
-              placeholder="Search by ISIN or Name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-            />
-            {searchQuery && (
-              <button className="clear-search" onClick={() => setSearchQuery('')}>
-                &times;
-              </button>
-            )}
-          </div>
-
-          <div className="sidebar-filters">
-            <div className="filter-group">
-              <label>Maturity</label>
-              <div className="button-group">
-                <button
-                  className={maturityFilter === 'all' ? 'filter-btn active' : 'filter-btn'}
-                  onClick={() => setMaturityFilter('all')}
-                >
-                  All
-                </button>
-                <button
-                  className={maturityFilter === 'short' ? 'filter-btn active' : 'filter-btn'}
-                  onClick={() => setMaturityFilter('short')}
-                  title="Under 3 Years"
-                >
-                  Short
-                </button>
-                <button
-                  className={maturityFilter === 'medium' ? 'filter-btn active' : 'filter-btn'}
-                  onClick={() => setMaturityFilter('medium')}
-                  title="3 - 7 Years"
-                >
-                  Med
-                </button>
-                <button
-                  className={maturityFilter === 'long' ? 'filter-btn active' : 'filter-btn'}
-                  onClick={() => setMaturityFilter('long')}
-                  title="Over 7 Years"
-                >
-                  Long
-                </button>
-              </div>
-            </div>
-
-            <div className="filter-group select-group">
-              <label htmlFor="sort-select">Sort By</label>
-              <select
-                id="sort-select"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="sort-select"
-              >
-                <option value="name">Nomenclature</option>
-                <option value="maturity">Maturity Date</option>
-                <option value="ytm">Yield (Highest)</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="bonds-list-container">
-            <div className="list-count-badge">
-              Showing {filteredBonds.length} Government Securities
-            </div>
-            
-            {filteredBonds.length === 0 ? (
-              <div className="no-bonds-found">
-                No securities match your search/filter criteria.
-              </div>
-            ) : (
-              <ul className="bonds-list">
-                {filteredBonds.map((bond) => {
-                  const isActive = activeBond && activeBond.isin === bond.isin;
-                  const years = getMaturityYears(bond).toFixed(1);
-                  return (
-                    <li
-                      key={bond.isin}
-                      className={`bond-item ${isActive ? 'active' : ''}`}
-                      onClick={() => onSelectBond(bond)}
-                    >
-                      <div className="bond-item-main">
-                        <span className="bond-item-name">{bond.name}</span>
-                        <span className="bond-item-yield">
-                          {(bond.currentYTM * 100).toFixed(2)}% YTM
-                        </span>
-                      </div>
-                      <div className="bond-item-sub">
-                        <span className="bond-item-isin">{bond.isin}</span>
-                        <span className="bond-item-tenor">{years} yrs</span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </>
-      ) : (
-        <div style={styles.portfolioHelper} className="font-mono text-muted">
-          ★ Currently viewing your custom starting portfolio dashboard.<br /><br />
-          To analyze other bonds or solve pricing/yield values, switch back to the **MARKET WATCH** tab.
+      <div className="bond-list-wrapper">
+        <div className="list-stats font-mono" style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          Securities: {sortedBonds.length}
         </div>
-      )}
+
+        {sortedBonds.length === 0 ? (
+          <div className="empty-search font-mono">No matching securities found.</div>
+        ) : (
+          <ul className="bond-list">
+            {sortedBonds.map((bond) => {
+              const isActive = activeBond && activeBond.isin === bond.isin;
+              const years = getTenorYears(bond.maturityDate);
+
+              return (
+                <li
+                  key={bond.isin}
+                  className={`bond-item ${isActive ? 'active' : ''}`}
+                  onClick={() => onSelectBond(bond)}
+                >
+                  <div className="bond-item-main">
+                    <span className="bond-item-name">{bond.name}</span>
+                    <span className="bond-item-yield">
+                      {(bond.currentYTM * 100).toFixed(2)}% YTM
+                    </span>
+                  </div>
+                  <div className="bond-item-sub">
+                    <span className="bond-item-isin">{bond.isin}</span>
+                    <span className="bond-item-tenor">{years} yrs</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
 
       <div className="sidebar-footer">
         <div className="connection-status">
@@ -212,32 +169,3 @@ export default function Sidebar({ bonds, activeBond, onSelectBond, settlementDat
     </aside>
   );
 }
-
-const styles = {
-  navContainer: {
-    display: 'flex',
-    gap: '10px',
-    borderBottom: '1px solid #1e293b',
-    paddingBottom: '5px',
-    width: '100%'
-  },
-  navBtn: {
-    flex: 1,
-    padding: '8px 5px',
-    background: 'none',
-    border: 'none',
-    borderBottom: '2px solid transparent',
-    fontSize: '11px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    textAlign: 'center',
-    transition: 'all 0.2s',
-  },
-  portfolioHelper: {
-    flex: 1,
-    padding: '20px 10px',
-    fontSize: '12px',
-    lineHeight: '1.5',
-    textAlign: 'center'
-  }
-};

@@ -347,7 +347,7 @@ export default function PortfolioView({ portfolioData, ordersData, onCancelOrder
                           ...styles.td,
                           color: t.tradeType === 'BUY' ? 'var(--accent-teal)' : 'var(--accent-red)'
                         }} className="font-bold">{t.tradeType}</td>
-                        <td style={styles.td} className="font-mono">👤 {t.counterparty ? t.counterparty.toUpperCase() : 'MARKET'}</td>
+                        <td style={styles.td} className="font-mono">{t.counterparty ? t.counterparty.toUpperCase() : 'MARKET'}</td>
                         <td style={styles.td} className="font-mono">₹{t.executionPrice.toFixed(4)}</td>
                         <td style={styles.td} className="font-mono">{t.quantity.toLocaleString()}</td>
                         <td style={styles.td} className="font-mono font-bold">{formatCurrency(t.totalValue)}</td>

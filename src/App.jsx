@@ -100,7 +100,7 @@ export default function App() {
     })
       .then(res => {
         if (!res.ok) {
-          if (res.status === 401 || res.status === 403) {
+          if (res.status === 401 || res.status === 403 || res.status === 404) {
             handleLogout();
           }
           throw new Error('Failed to fetch portfolio');
@@ -127,7 +127,12 @@ export default function App() {
       }
     })
       .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch orders');
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403 || res.status === 404) {
+            handleLogout();
+          }
+          throw new Error('Failed to fetch orders');
+        }
         return res.json();
       })
       .then(data => {
@@ -150,7 +155,12 @@ export default function App() {
       }
     })
       .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch market listings');
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403 || res.status === 404) {
+            handleLogout();
+          }
+          throw new Error('Failed to fetch market listings');
+        }
         return res.json();
       })
       .then(data => {
@@ -332,13 +342,98 @@ export default function App() {
         activeBond={activeBond}
         onSelectBond={handleSelectBond}
         settlementDate={settlementDate}
-        currentTab={currentTab}
-        onTabChange={setCurrentTab}
         liveDataInfo={liveDataInfo}
       />
 
       {/* 2. Main Analytics Panel */}
       <main className="terminal-main-content">
+        {/* Horizontal Navigation Tabs */}
+        <div style={{
+          display: 'flex',
+          gap: '15px',
+          borderBottom: '1px solid #1e293b',
+          marginBottom: '15px',
+          paddingBottom: '2px',
+          alignItems: 'center'
+        }} className="font-mono">
+          <button
+            onClick={() => setCurrentTab('analytics')}
+            style={{
+              background: 'none',
+              border: 'none',
+              borderBottom: '2px solid',
+              borderBottomColor: currentTab === 'analytics' ? 'var(--accent-teal)' : 'transparent',
+              color: currentTab === 'analytics' ? 'var(--accent-teal)' : 'var(--text-muted)',
+              padding: '10px 12px',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              letterSpacing: '0.5px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              outline: 'none'
+            }}
+          >
+            MARKET WATCH
+          </button>
+          <button
+            onClick={() => setCurrentTab('quoting')}
+            style={{
+              background: 'none',
+              border: 'none',
+              borderBottom: '2px solid',
+              borderBottomColor: currentTab === 'quoting' ? 'var(--accent-teal)' : 'transparent',
+              color: currentTab === 'quoting' ? 'var(--accent-teal)' : 'var(--text-muted)',
+              padding: '10px 12px',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              letterSpacing: '0.5px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              outline: 'none'
+            }}
+          >
+            SUBMIT QUOTE
+          </button>
+          <button
+            onClick={() => setCurrentTab('marketplace')}
+            style={{
+              background: 'none',
+              border: 'none',
+              borderBottom: '2px solid',
+              borderBottomColor: currentTab === 'marketplace' ? 'var(--accent-teal)' : 'transparent',
+              color: currentTab === 'marketplace' ? 'var(--accent-teal)' : 'var(--text-muted)',
+              padding: '10px 12px',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              letterSpacing: '0.5px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              outline: 'none'
+            }}
+          >
+            MARKETPLACE
+          </button>
+          <button
+            onClick={() => setCurrentTab('portfolio')}
+            style={{
+              background: 'none',
+              border: 'none',
+              borderBottom: '2px solid',
+              borderBottomColor: currentTab === 'portfolio' ? 'var(--accent-teal)' : 'transparent',
+              color: currentTab === 'portfolio' ? 'var(--accent-teal)' : 'var(--text-muted)',
+              padding: '10px 12px',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              letterSpacing: '0.5px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              outline: 'none'
+            }}
+          >
+            PORTFOLIO
+          </button>
+        </div>
+
         {/* Live Simulation Top Feed Banner */}
         <div className="live-feed-banner">
           <div className="banner-left">

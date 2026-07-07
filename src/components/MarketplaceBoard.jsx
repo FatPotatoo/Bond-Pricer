@@ -4,6 +4,7 @@ export default function MarketplaceBoard({ activeBond, token, marketOrders, curr
   const [acceptingId, setAcceptingId] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [viewMode, setViewMode] = useState('CURRENT'); // 'CURRENT' or 'ALL'
 
   if (!token) {
     return (
@@ -13,11 +14,13 @@ export default function MarketplaceBoard({ activeBond, token, marketOrders, curr
     );
   }
 
-  // Filter listings to show only for the currently active bond
-  const activeListings = marketOrders.filter(o => o.isin === activeBond.isin);
+  // Filter listings based on viewMode
+  const displayListings = viewMode === 'CURRENT'
+    ? marketOrders.filter(o => o.isin === activeBond.isin)
+    : marketOrders;
   
-  const buyListings = activeListings.filter(o => o.orderType === 'BUY').sort((a, b) => b.price - a.price); // highest bids first
-  const sellListings = activeListings.filter(o => o.orderType === 'SELL').sort((a, b) => a.price - b.price); // cheapest asks first
+  const buyListings = displayListings.filter(o => o.orderType === 'BUY').sort((a, b) => b.price - a.price); // highest bids first
+  const sellListings = displayListings.filter(o => o.orderType === 'SELL').sort((a, b) => a.price - b.price); // cheapest asks first
 
   const handleAccept = async (orderId, orderType, price, qty) => {
     setError('');
@@ -60,8 +63,35 @@ export default function MarketplaceBoard({ activeBond, token, marketOrders, curr
 
   return (
     <div className="terminal-card" style={styles.container}>
-      <div style={styles.header} className="font-mono">
-        ★ CLASSROOM STUDENT MARKETPLACE BOARD
+      <div style={styles.headerRow}>
+        <div style={styles.header} className="font-mono">
+          ★ CLASSROOM STUDENT MARKETPLACE BOARD
+        </div>
+
+        <div style={styles.toggleContainer} className="font-mono">
+          <button
+            onClick={() => setViewMode('CURRENT')}
+            style={{
+              ...styles.toggleBtn,
+              borderColor: viewMode === 'CURRENT' ? 'var(--accent-teal)' : '#1e293b',
+              color: viewMode === 'CURRENT' ? 'var(--accent-teal)' : 'var(--text-muted)',
+              backgroundColor: viewMode === 'CURRENT' ? 'rgba(20, 184, 166, 0.05)' : 'transparent'
+            }}
+          >
+            ACTIVE BOND ONLY
+          </button>
+          <button
+            onClick={() => setViewMode('ALL')}
+            style={{
+              ...styles.toggleBtn,
+              borderColor: viewMode === 'ALL' ? 'var(--accent-teal)' : '#1e293b',
+              color: viewMode === 'ALL' ? 'var(--accent-teal)' : 'var(--text-muted)',
+              backgroundColor: viewMode === 'ALL' ? 'rgba(20, 184, 166, 0.05)' : 'transparent'
+            }}
+          >
+            ALL SECURITIES
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -85,7 +115,9 @@ export default function MarketplaceBoard({ activeBond, token, marketOrders, curr
           <div style={styles.listContainer}>
             {buyListings.length === 0 ? (
               <div style={styles.noListings} className="font-mono text-muted">
-                No active student buy quotes for this bond.
+                {viewMode === 'CURRENT' 
+                  ? 'No active student buy quotes for this bond.' 
+                  : 'No active student buy quotes in the market.'}
               </div>
             ) : (
               buyListings.map((listing) => {
@@ -98,9 +130,15 @@ export default function MarketplaceBoard({ activeBond, token, marketOrders, curr
                     borderColor: isOwnOrder ? 'rgba(20, 184, 166, 0.2)' : '#1e293b',
                     backgroundColor: isOwnOrder ? 'rgba(20, 184, 166, 0.02)' : '#070c15'
                   }}>
+                    {viewMode === 'ALL' && (
+                      <div style={styles.bondLabel} className="font-mono font-bold">
+                        BOND: {listing.name}
+                      </div>
+                    )}
+
                     <div style={styles.listingHeader}>
                       <span className="font-mono font-bold" style={{ color: isOwnOrder ? 'var(--accent-teal)' : '#f8fafc' }}>
-                        👤 {listing.username.toUpperCase()} {isOwnOrder && '(YOU)'}
+                        STUDENT: {listing.username.toUpperCase()} {isOwnOrder && '(YOU)'}
                       </span>
                       <span style={styles.timestamp} className="font-mono">
                         {new Date(listing.createdAt).toLocaleTimeString()}
@@ -156,7 +194,9 @@ export default function MarketplaceBoard({ activeBond, token, marketOrders, curr
           <div style={styles.listContainer}>
             {sellListings.length === 0 ? (
               <div style={styles.noListings} className="font-mono text-muted">
-                No active student sell quotes for this bond.
+                {viewMode === 'CURRENT' 
+                  ? 'No active student sell quotes for this bond.' 
+                  : 'No active student sell quotes in the market.'}
               </div>
             ) : (
               sellListings.map((listing) => {
@@ -169,9 +209,15 @@ export default function MarketplaceBoard({ activeBond, token, marketOrders, curr
                     borderColor: isOwnOrder ? 'rgba(239, 68, 68, 0.2)' : '#1e293b',
                     backgroundColor: isOwnOrder ? 'rgba(239, 68, 68, 0.02)' : '#070c15'
                   }}>
+                    {viewMode === 'ALL' && (
+                      <div style={styles.bondLabel} className="font-mono font-bold">
+                        BOND: {listing.name}
+                      </div>
+                    )}
+
                     <div style={styles.listingHeader}>
                       <span className="font-mono font-bold" style={{ color: isOwnOrder ? 'var(--accent-red)' : '#f8fafc' }}>
-                        👤 {listing.username.toUpperCase()} {isOwnOrder && '(YOU)'}
+                        STUDENT: {listing.username.toUpperCase()} {isOwnOrder && '(YOU)'}
                       </span>
                       <span style={styles.timestamp} className="font-mono">
                         {new Date(listing.createdAt).toLocaleTimeString()}
@@ -229,12 +275,41 @@ const styles = {
     border: '1px solid #1e293b',
     borderRadius: '12px'
   },
+  headerRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '15px',
+    borderBottom: '1px solid #1e293b',
+    paddingBottom: '12px'
+  },
   header: {
     fontSize: '12px',
     color: '#f8fafc',
     letterSpacing: '1px',
     fontWeight: 'bold',
-    marginBottom: '15px'
+    margin: 0
+  },
+  toggleContainer: {
+    display: 'flex',
+    gap: '6px'
+  },
+  toggleBtn: {
+    border: '1px solid',
+    borderRadius: '4px',
+    padding: '4px 10px',
+    fontSize: '10px',
+    cursor: 'pointer',
+    transition: 'all 0.2s'
+  },
+  bondLabel: {
+    fontSize: '11px',
+    color: '#e2e8f0',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderBottom: '1px solid #1e293b',
+    paddingBottom: '6px',
+    marginBottom: '4px',
+    letterSpacing: '0.5px'
   },
   emptyContainer: {
     padding: '30px',
