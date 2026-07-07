@@ -398,58 +398,71 @@ export default function App() {
         </div>
 
         {currentTab === 'quoting' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '20px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <TradingPanel
-                activeBond={activeBond}
-                token={token}
-                userCash={portfolioData ? portfolioData.cashBalance : 10000000.0}
-                onOrderPlaced={() => {
-                  fetchPortfolio();
-                  fetchOrders();
-                  fetchMarketOrders();
-                }}
-              />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <TradingPanel
+              activeBond={activeBond}
+              token={token}
+              userCash={portfolioData ? portfolioData.cashBalance : 10000000.0}
+              onOrderPlaced={() => {
+                fetchPortfolio();
+                fetchOrders();
+                fetchMarketOrders();
+              }}
+            />
+            
+            <div className="terminal-card" style={{ padding: '20px', backgroundColor: '#0a0f1d', border: '1px solid #1e293b', borderRadius: '12px' }}>
+              <div style={{ fontSize: '12px', color: '#f8fafc', letterSpacing: '1px', fontWeight: 'bold', marginBottom: '15px' }} className="font-mono">
+                ★ ACTIVE BOND DETAILS (CCIL REFERENCE)
+              </div>
               
-              <div className="terminal-card" style={{ padding: '20px', backgroundColor: '#0a0f1d', border: '1px solid #1e293b', borderRadius: '12px' }}>
-                <div style={{ fontSize: '11px', color: '#f8fafc', letterSpacing: '1px', fontWeight: 'bold', marginBottom: '10px' }} className="font-mono">
-                  ★ ACTIVE BOND DETAILS (CCIL REFERENCE)
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <div style={{ borderBottom: '1px solid #1e293b', paddingBottom: '12px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--accent-teal)' }}>{activeBond.name}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }} className="font-mono">{activeBond.isin}</div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }} className="font-mono text-muted">
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Coupon Rate:</span>
-                    <span style={{ color: '#e2e8f0', fontWeight: 'bold' }}>{(activeBond.coupon * 100).toFixed(2)}%</span>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }} className="font-mono">
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>COUPON RATE</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>{(activeBond.coupon * 100).toFixed(2)}%</div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Maturity Date:</span>
-                    <span style={{ color: '#e2e8f0', fontWeight: 'bold' }}>{activeBond.maturityDate}</span>
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>MATURITY DATE</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>{activeBond.maturityDate}</div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>CCIL Ref Clean Price:</span>
-                    <span style={{ color: 'var(--accent-teal)', fontWeight: 'bold' }}>₹{activeBond.currentCleanPrice.toFixed(4)}</span>
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>CCIL REF CLEAN PRICE</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>₹{activeBond.currentCleanPrice.toFixed(4)}</div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>CCIL Ref Yield (YTM):</span>
-                    <span style={{ color: 'var(--accent-teal)', fontWeight: 'bold' }}>{(activeBond.currentYTM * 100).toFixed(4)}%</span>
+                  <div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>CCIL REF YIELD (YTM)</div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#f8fafc' }}>{(activeBond.currentYTM * 100).toFixed(4)}%</div>
                   </div>
+                </div>
+                
+                <div style={{ borderTop: '1px solid #1e293b', paddingTop: '15px', marginTop: '10px' }} className="font-mono">
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>SANDBOX INSTRUCTION MANUAL:</div>
+                  <ul style={{ fontSize: '11px', color: '#94a3b8', paddingLeft: '15px', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <li>Select a G-Sec in the sidebar, enter your target Clean Price, and lot quantity (minimum lot size is ₹100 face value).</li>
+                    <li>Submit your quote to list it on the global classroom board. For Buy bids, cash is held in escrow; for Sell asks, G-Sec units are blocked.</li>
+                    <li>Head over to the <strong>Marketplace</strong> tab to browse and manually accept open quotes published by other students.</li>
+                  </ul>
                 </div>
               </div>
             </div>
-            
-            <div>
-              <MarketplaceBoard
-                activeBond={activeBond}
-                token={token}
-                marketOrders={marketOrders}
-                currentUsername={username}
-                onTradeExecuted={() => {
-                  fetchPortfolio();
-                  fetchOrders();
-                  fetchMarketOrders();
-                }}
-              />
-            </div>
           </div>
+        ) : currentTab === 'marketplace' ? (
+          <MarketplaceBoard
+            activeBond={activeBond}
+            token={token}
+            marketOrders={marketOrders}
+            currentUsername={username}
+            onTradeExecuted={() => {
+              fetchPortfolio();
+              fetchOrders();
+              fetchMarketOrders();
+            }}
+          />
         ) : currentTab === 'portfolio' ? (
           <PortfolioView 
             portfolioData={portfolioData} 

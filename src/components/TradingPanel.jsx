@@ -15,7 +15,7 @@ export default function TradingPanel({ activeBond, token, userCash, onOrderPlace
       setError('');
       setSuccess('');
     }
-  }, [activeBond, orderType]);
+  }, [activeBond?.isin]);
 
   if (!token) {
     return (
