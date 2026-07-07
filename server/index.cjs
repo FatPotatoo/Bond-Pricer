@@ -557,7 +557,7 @@ function startAutoIngestion() {
 }
 
 function runScraper(scriptPath) {
-  exec(`python "${scriptPath}"`, (error, stdout, stderr) => {
+  exec(`python "${scriptPath}" --force`, (error, stdout, stderr) => {
     if (error) {
       console.error(`[Auto-Scheduler Error]: ${error.message}`);
       return;
